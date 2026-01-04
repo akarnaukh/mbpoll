@@ -44,7 +44,7 @@ sudo apt install -y libmodbus-dev libjansson-dev build-essential
 -  Клонирование или создание структуры проекта:
 ```bash
 # Клонирование репозитория
-git clone <repository-url>
+git clone https://github.com/akarnaukh/mbpoll.git
 cd mbusread
 
 # Сборка проекта
