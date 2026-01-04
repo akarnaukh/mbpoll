@@ -1,233 +1,447 @@
 # MBusRead - ModBus TCP/RTU Polling Service
-## ⚠️ Проект еще в работе ⚠️
 ## Описание
-PZEM-6L24 Monitor - это системный сервис для мониторинга электроэнергии с помощью датчиков PZEM-6L24 через интерфейс UART / Modbus-RTU или TCP.  
-Для TCP используеться отдельный шлюз, само устройство имеет выходы UART или RS-485!  
-Сервис предназначен для работы на embedded Linux системах (Raspberry Pi, Orange Pi, Luckfox Pico и др.).  
-На основе [PZEM_004T_Systemd](https://github.com/akarnaukh/PZEM_004T_Systemd).  
+MBusRead - это система опроса Modbus устройств, работающая как демон systemd. Сервис опрашивает устройства в соответствии с конфигурационным файлом и указанным интервалом, предоставляя данные через TCP сокет. 
 
 ## Основные возможности:
-- Мониторинг параметров: напряжение, ток, частота, угол фаз
-- Минимальный период опроса 200мс, вывод предуреждения в syslog
-- Пороговые значения: настраиваемые пределы с состояниями H/L/N
-- Автоматическое логирование: запись данных в CSV-файлы
-- Буферизация: эффективное сохранение данных с минимальным IO
-- Real-time данные: передача через FIFO для других сервисов
-- Автовосстановление: автоматическое переподключение при ошибках
-- Гибкая конфигурация: отдельные конфиги для каждого экземпляра
-- Время периода опроса учитвает реальное затраченое время на сам запрос и выполнеие всех расчетов
+- Поддержка протоколов: Modbus TCP и RTU (последовательный порт)
+- Функции Modbus: 2 (Input Bits), 3 (Holding Registers), 4 (Input Registers)
+- Управление устройствами: Гибкая конфигурация через JSON файл
+- Отказоустойчивость: Автоматическое переподключение при потере соединения
+- Мониторинг: Подробное логирование с различными уровнями
+- Доступ к данным: TCP API с JSON форматом
+- Масштабируемость: Поддержка множества экземпляров через systemd templates
 
-## Построение графика
-![Пример графика.](/Graph_html/sh1.png "Пример суточного графика.")
-![Пример графика.](/Graph_html/sh2.png "Частота и углы фаз.")
-В каталоге [/Graph_html](/Graph_html) простой HTML файл для построения графика из лог файла..
-
-### В процессе:
-- Исправить посчет мощности
-- Поправить статусы углов фаз... (как учитывать 🤷) 
+## Архитектура
+```mermaid
+graph TB
+    A[Systemd Service] --> B[MBusRead Daemon]
+    B --> C[Config Loader]
+    B --> D[Device List Parser]
+    B --> E[Modbus Client]
+    B --> F[TCP Server]
+    
+    C --> G[Configuration File]
+    D --> H[Device List JSON]
+    E --> I[Modbus Devices]
+    F --> J[TCP Clients]
+    
+    style A fill:#e1f5fe
+    style B fill:#f3e5f5
+    style G fill:#e8f5e8
+    style H fill:#fff3e0
+```
 
 ## Установка и сборка
 ### Предварительные требования
 ```bash
 # Установка зависимостей (Debian/Ubuntu)
 sudo apt update
-sudo apt install build-essential libmodbus-dev
+sudo apt install -y libmodbus-dev libjansson-dev build-essential
 
-# Или для Alpine Linux
-sudo apk add build-base libmodbus-dev
 ```
 
 ### Сборка из исходников
 -  Клонирование или создание структуры проекта:
 ```bash
-git clone https://github.com/akarnaukh/PZEM_6L24_Systemd.git
-cd ./PZEM_6L24_Systemd
-```
-- Размещение файлов:
-```text
-src/pzem_monitor.h - заголовочный файл
-src/pzem_monitor.c - основной код
-config/pzem3_default.conf - конфигурация по умолчанию
-systemd/pzem3@.service - systemd сервис
-Makefile - система сборки
-```
- - Сборка проекта:
- ```bash
- # Стандартная сборка с шаблонами
-make
+# Клонирование репозитория
+git clone <repository-url>
+cd mbusread
 
-# Сборка с отладочной информацией
-make debug
+# Сборка проекта
+make all
 
-# Только создание шаблонов конфигурации
-make templates
-```
-- Установка в систему:
-```bash
+# Установка
 sudo make install
 ```
-
-## Удаление сервиса
+### Makefile цели
 ```bash
-# Полное удаление из системы
-sudo make uninstall
-
-# Логи и конфиги не удаляються автоматически
-# Ручное удаление логов и конфигов
-sudo rm -rf /etc/pzem3
-sudo rm -rf /var/log/pzem3 # или как указано в конфигурации
+make all           # Очистка, сборка и создание шаблонов
+make clean         # Очистка сборки
+make debug         # Сборка с отладочной информацией
+make install       # Установка в систему
+make uninstall     # Удаление из системы
+make template      # Создание шаблонов конфигурации
+make monitor       # Мониторинг логов сервиса
+make client-test   # Тестирование TCP клиента
 ```
+## Конфигурация
 
-## Настройка конфигурации
-- Основной конфигурационный файл создается автоматически в /etc/pzem/default.conf:
+### Структура файлов
+```text
+/etc/mbusread/
+├── coold1.conf              # Конфигурация экземпляра
+└── dev_list.json           # Список устройств
+```
+### Настройка конфигурации
+- Пример /etc/mbusread/coold1.conf:
 ```ini
-# PZEM-6L24 Default Configuration
-
-# Serial port settings
-device = /dev/ttyS1@9600
+# ModBus Read Service Configuration
+# Serial port settings 
+# device = /dev/ttyS1@9600 
 # or TCP device settings
-# device = 192.168.0.10:502
-slave_addr = 1
-# Период опроса в мс (допустимый диапазон 200 - 10000мс)
-poll_interval_ms = 500 
+device = 192.168.0.10:502
 
-# Logging settings
-log_dir = /var/log/pzem3
-# Размер буфера логов в строках (1-25)
-log_buffer_size = 10
+# Интервал между опросом в мс 
+poll_interval_ms = 5000 
 
-# Sensitivity settings
-# Чувствительность, на какие значения должны измениться данные
-# Чтобы считать, что они изменились
-voltage_sensitivity = 0.1
-current_sensitivity = 0.01
-frequency_sensitivity = 0.01
-angleV_sensitivity = 0.1
-angleI_sensitivity = 0.1
-power_sensitivity = 0.1
+listing_ip = 0.0.0.0
+listing_port = 24122
 
-# Voltage thresholds (0 = disabled)
-# Пороговые значения, по которым выставляются статусы H, L, N
-voltage_high_alarm = 245
-voltage_high_warning = 240
-voltage_low_warning = 210
-voltage_low_alarm = 200
+log_level = info
+# Доступны - debug: Все пишем в лог, включая данные регистров,
+# info: События modbus, warn - timeout при чтении,
+# error - только критические ошибки
 
-# Frequency thresholds (0 = disabled)
-frequency_high_alarm = 52
-frequency_high_warning = 51
-frequency_low_warning = 49
-frequency_low_alarm = 48
-
-# Angle rotate V thresholds (0 = disabled)
-angleV_high_alarm = 0
-angleV_high_warning = 0
-angleV_low_warning = 0
-angleV_low_alarm = 0
-
-# Angle rotate I thresholds (0 = disabled)
-angleI_high_alarm = 0
-angleI_high_warning = 0
-angleI_low_warning = 0
-angleI_low_alarm = 0
+# Файл списка устройств
+dev_list_file = /etc/mbusread/dev_list.json
 ```
-- Создание дополнительных конфигураций:
-```bash
-sudo cp /etc/pzem3/default.conf /etc/pzem3/input1.conf
-sudo nano /etc/pzem3/input1.conf  # редактирование настроек
+
+### Файл списка устройств
+Пример /etc/mbusread/dev_list.json:
+```json
+{
+  "devices": {
+    "10": {
+      "3": {
+        "s": 1,
+        "q": 5
+      },
+      "4": {
+        "s": 22,
+        "q": 3
+      }
+    },
+    "11-15": {
+      "3": {
+        "s": 0,
+        "q": 10
+      }
+    }
+  }
+}
 ```
+### Структура JSON:
+
+- devices - объект с устройствами
+    * Ключ: адрес устройства (например, "10" или диапазон "12-15")
+    * Значение: объект с функциями Modbus
+        * Ключ: номер функции (2, 3, 4)
+        * Значение: объект с параметрами
+            * s: стартовый адрес регистра
+            * q: количество регистров
+
+#### Поддерживаемые функции Modbus:
+
+- `2`: Input Bits (дискретные входы)
+- `3`: Holding Registers (регистры хранения)
+- `4`: Input Registers (входные регистры)
+
+
 
 ## Управление сервисом
 ```bash
-# Запуск сервиса с разными конфигурациями
-sudo systemctl start pzem3@default
-sudo systemctl start pzem3@input1
+# Запуск одного экземпляра
+sudo systemctl start mbusread@coold1
 
-# Автозагрузка при старте системы
-sudo systemctl enable pzem3@input1
+# Автозапуск при загрузке
+sudo systemctl enable mbusread@coold1
 
-# Просмотр статуса
-sudo systemctl status pzem3@input1
+# Проверка статуса
+sudo systemctl status mbusread@coold1
 
 # Просмотр логов
-sudo journalctl -u pzem3@input1 -f
+sudo journalctl -u mbusread@coold1 -f
+sudo journalctl -u mbusread@coold1 -n 50 --no-pager
+```
+### Запуск нескольких экземпляров
+```bash
+# Создание конфигураций для разных устройств
+sudo cp /etc/mbusread/coold1.conf /etc/mbusread/device2.conf
+sudo nano /etc/mbusread/device2.conf
 
-# Остановка сервиса
-sudo systemctl stop pzem3@input1
+# Запуск нескольких экземпляров
+sudo systemctl start mbusread@coold1
+sudo systemctl start mbusread@device2
+
+# Мониторинг всех экземпляров
+sudo journalctl -u 'mbusread@*' -f
 ```
 
-## Структура лог-файлов
-- Лог-файлы создаются в директории указанной в конфигурации (default /var/log/pzem3/) в формате: `pzem3_<config>_YYYY-MM-DD.log`
+### Ручной запуск для отладки
+``` bash
+# Запуск с выводом в консоль
+/usr/local/bin/mbusread /etc/mbusread/coold1.conf
+
+# Запуск с отладочным уровнем логов
+sudo systemctl stop mbusread@coold1
+sudo /usr/local/bin/mbusread /etc/mbusread/coold1.conf 2>&1 | tee /tmp/mbusread.log
+```
+
+## TCP API
+Сервис предоставляет данные через TCP сокет в формате JSON.
+## Подключение к API
+```bash
+# Использование netcat
+nc 0.0.0.0 24122 | head -c 1000
+
+# Использование telnet
+telnet 0.0.0.0 24122
+
+# Использование Python скрипта
+python3 -c "
+import socket
+import struct
+import json
+
+sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+sock.connect(('0.0.0.0', 24122))
+
+# Читаем длину данных (4 байта)
+data_len_bytes = sock.recv(4)
+data_len = struct.unpack('!I', data_len_bytes)[0]
+
+# Читаем JSON данные
+json_data = sock.recv(data_len)
+data = json.loads(json_data.decode('utf-8'))
+print(json.dumps(data, indent=2))
+
+sock.close()
+"
+```
+### Формат ответа
+```json
+{
+  "devices": [
+    {
+      "address": 10,
+      "available": true,
+      "registers": [
+        {
+          "function": 3,
+          "start": 1,
+          "quantity": 5,
+          "values": [21, 3, 3, 0, 0]
+        },
+        {
+          "function": 4,
+          "start": 22,
+          "quantity": 3,
+          "values": [255, 2437, 1]
+        }
+      ]
+    },
+    {
+      "address": 11,
+      "available": false,
+      "registers": [
+        {
+          "function": 3,
+          "start": 1,
+          "quantity": 5,
+          "values": ["na", "na", "na", "na", "na"]
+        }
+      ]
+    }
+  ],
+  "timestamp": 1672156800
+}
+```
+
+### Поля ответа:
+
+- devices: массив устройств
+    - address: адрес Modbus устройства
+    - available: доступность устройства (true/false)
+    - registers: массив диапазонов регистров
+        - function: функция Modbus
+        - start: начальный адрес
+        - quantity: количество регистров\
+        - values: значения регистров или "na" если недоступно
+- timestamp: метка времени Unix
+
+## Логирование
+### Уровни логирования
+
+- **`debug`**: Все сообщения, включая значения регистров
+- **`info`**: Основные события (подключения, опросы)
+- **`warn`**: Предупреждения (таймауты, частичные чтения)
+- **`error`**: Критические ошибки
+
+### Просмотр логов
+```bash
+# Все логи сервиса
+sudo journalctl -u mbusread@coold1
+
+# Логи с фильтрацией по уровню
+sudo journalctl -u mbusread@coold1 | grep -E "(ERROR|WARN|INFO|DEBUG)"
+
+# Отслеживание логов в реальном времени
+sudo journalctl -u mbusread@coold1 -f
+
+# Логи с временными метками
+sudo journalctl -u mbusread@coold1 -o short-precise
+```
+### Пример логов
 ```text
-/var/log/pzem3/
-├── pzem3_default_2024-01-15.log
-└── pzem3_input1_2024-01-15.log
+INFO: === Starting mbusread service ===
+INFO: Configuration file: /etc/mbusread/coold1.conf
+INFO: === Step 1: Loading configuration ===
+INFO: Loading configuration from: /etc/mbusread/coold1.conf
+INFO: Device: 192.168.1.100:502
+INFO: TCP device: 192.168.1.100:502
+INFO: Poll interval: 5000 ms
+INFO: TCP server will listen on: 0.0.0.0:24122
+INFO: Configuration loaded successfully
+INFO: === Step 2: Loading device list ===
+INFO: Total devices to load: 2
+INFO: Successfully loaded 2 devices
+INFO: === Step 3: Initializing Modbus connection ===
+INFO: TCP Modbus connection established: 192.168.1.100:502
+INFO: === Step 4: Checking Modbus connection ===
+INFO: Modbus connection is OK
+INFO: === Step 5: Starting TCP server ===
+INFO: TCP server listening on 0.0.0.0:24122
+INFO: === Service initialization complete ===
+DEBUG: === Polling cycle 1 ===
+DEBUG: Polling device 10
+DEBUG: Device 10 (func 3): 0015 0003 0003 ...
+DEBUG: Device 10 polled successfully
+```
+## Управление памятью
+Сервис управляет памятью следующим образом:
+1. Выделение при старте: Память выделяется для всех устройств и диапазонов регистров
+2. Динамическое выделение: Значения регистров выделяются при первом успешном чтении
+3. Освобождение: При недоступности устройства память освобождается
+4. Очистка: Все ресурсы освобождаются при завершении работы
+
+## Отказоустойчивость
+### Обработка ошибок
+1. **`Connection timed out`**: Не является критической ошибкой, устройство помечается как недоступное
+2. **`Modbus устройство недоступно`**: Последующие функции для данного устройства пропускаются
+3. **`UART/TCP недоступен`**: Критическая ошибка, попытка переинициализации соединения
+4. **`Некорректный JSON dev_list`**: Критическая ошибка, сервис завершает работу
+
+## Переподключение
+### При потере соединения:
+1. Логируется предупреждение
+2. Закрывается существующее соединение
+3. Ожидается 2 секунды
+4. Выполняется попытка переподключения
+5. При неудаче - экспоненциальная задержка до 30 секунд
+
+## Структура проекта
+```text
+mbusread/
+├── src/                    # Исходный код
+│   ├── main.c             # Главная функция
+│   ├── daemon.c           # Функции демонизации и логирования
+│   ├── daemon.h           # Заголовочный файл
+│   ├── config.c           # Загрузка конфигурации
+│   ├── config.h           # Заголовочный файл
+│   ├── modbus_client.c    # Modbus клиент
+│   ├── modbus_client.h    # Заголовочный файл
+│   ├── device_list.c      # Парсинг списка устройств
+│   ├── device_list.h      # Заголовочный файл
+│   ├── tcp_server.c       # TCP сервер
+│   └── tcp_server.h       # Заголовочный файл
+├── build/                 # Собранные файлы
+│   ├── mbusread          # Исполняемый файл
+│   ├── systemd/
+│   │   └── mbusread@.service  # Systemd unit файл
+│   └── config/
+│       └── mbusread.conf      # Шаблон конфигурации
+├── Makefile              # Файл сборки
+└── README.md            # Документация
 ```
 
-- Формат данных в логе (CSV):
-```csv
-дата, время, напряжение A, состояние_напряжения A, напряжение B, состояние_напряжения B, напряжение C, состояние_напряжения C, ток A, состояние_тока A, ток B, состояние_тока B, ток C, состояние_тока C, частота A, состояние_частоты A, частота B, состояние_частоты B, частота C, состояние_частоты C, угол V B, сотояние угла V B, угол V C, сотояние угла V C, угол I A, сотояние угла I A, угол I B, сотояние угла I B, угол I C, сотояние угла I C, мощность A, мощность B, мощность C, статус
-2025-10-24,16:12:58,221.3,N,221.8,N,224.9,N,0.00,N,0.00,N,0.00,N,49.93,N,49.89,N,49.91,N,239.31,N,119.75,N,0.00,N,0.00,N,0.00,N,0.0,0.0,0.0,0
-2025-10-24,16:13:03,219.9,N,221.7,N,225.7,N,0.00,N,0.00,N,0.00,N,49.93,N,49.89,N,49.90,N,239.15,N,120.02,N,0.00,N,0.00,N,0.00,N,0.0,0.0,0.0,0
-2025-10-24,16:13:06,221.3,N,221.8,N,224.7,N,0.00,N,0.00,N,0.00,N,49.90,N,49.91,N,49.87,N,239.17,N,119.98,N,0.00,N,0.00,N,0.00,N,0.0,0.0,0.0,0
-2025-10-24,16:13:21,222.5,N,221.7,N,224.3,N,0.00,N,0.00,N,0.00,N,49.93,N,49.91,N,49.86,N,239.93,N,120.27,N,0.00,N,0.00,N,0.00,N,0.0,0.0,0.0,0
-```
-
-### Статусы состояний:
-- N - норма (в пределах порогов)
-- H - высокое значение (превышение верхнего порога)
-- L - низкое значение (ниже нижнего порога)
-
-### Коды статуса:
-- 0 - OK (данные успешно прочитаны)
-- 1 - DEVICE_ERROR (ошибка устройства)
-- 2 - PORT_ERROR (ошибка последовательного порта)
-
-## Использование FIFO для внешних сервисов
-- Сервис создает named pipe для реальной передачи данных:
+## Разработка
+### Сборка для разработки
 ```bash
-# Чтение данных в реальном времени ( /tmp/pzem3_data_{config_name} )
-tail -f /tmp/pzem3_data_input1
+# Сборка с отладочной информацией
+make debug
 
-# Использование в скриптах
-while read line; do
-    echo "Received: $line"
-    # Обработка данных...
-done < /tmp/pzem3_data_input1
+# Запуск тестового окружения
+./debug_service.sh
+
+# Проверка зависимостей
+./check_libmodbus.sh
 ```
 
-## Примеры использования
-### Для мониторинга одной фазы:
+### Тестирование
 ```bash
-sudo systemctl start pzem3@default
-sudo journalctl -u pzem3@default -f
+# Тестирование TCP клиента
+./test_tcp_client.sh
+
+# Тестирование полного цикла
+./install_and_test.sh
 ```
-### Для трехфазной системы:
+### Отладка
 ```bash
-sudo systemctl start pzem3@input1
-sudo systemctl start pzem3@input2  
-sudo systemctl enable pzem3@input1 pzem3@input2
+# Запуск под strace
+strace -f -o /tmp/mbusread.strace /usr/local/bin/mbusread /etc/mbusread/coold1.conf
+
+# Запуск под gdb
+gdb /usr/local/bin/mbusread
+(gdb) run /etc/mbusread/coold1.conf
+
+# Проверка утечек памяти
+valgrind --leak-check=full /usr/local/bin/mbusread /etc/mbusread/coold1.conf
 ```
 
-### Для embedded устройства (минимальная нагрузка):
-```ini
-# В конфиге
-# Опрашиваем 1 раз в секунду
-poll_interval_ms = 1000
-# Буфер на 10 строк
-log_buffer_size = 10
-```
-## Решение проблем
-### Сервис не запускается
-- Проверьте правильность пути к serial порту в конфиге
-- Убедитесь что порт доступен: `ls -la /dev/ttyS*` 
-- Проверьте права: `s`udo usermod -a -G dialout $USER`
-### Нет данных в логах
-- Проверьте подключение PZEM-6L24
-- Убедитесь в правильности slave address
-- Проверьте логи: `sudo journalctl -u pzem3@{config_name}`
-### Высокая нагрузка CPU
-- Увеличьте `poll_interval_ms` в конфигурации (рекомендуется 500-1000ms)
+## Устранение неполадок
+### Распространенные проблемы
+1. Сервис не запускается
+```bash
+# Проверка конфигурационного файла
+sudo /usr/local/bin/mbusread /etc/mbusread/coold1.conf
 
+# Проверка логов systemd
+sudo journalctl -u mbusread@coold1 -n 50 --no-pager
+
+# Проверка прав доступа
+ls -la /etc/mbusread/
+sudo chmod 644 /etc/mbusread/coold1.conf
+sudo chmod 644 /etc/mbusread/dev_list.json
+```
+2. Modbus соединение постоянно теряется
+```bash
+# Увеличить интервал опроса
+# В /etc/mbusread/coold1.conf:
+poll_interval_ms = 10000
+
+# Увеличить таймауты (пока не поддерживается)
+# device = 192.168.1.100:502?timeout=3000
+```
+3. TCP сервер не принимает соединения
+```bash
+# Проверка порта
+sudo netstat -tlnp | grep 24122
+
+# Проверка фаервола
+sudo ufw status
+sudo ufw allow 24122/tcp
+
+# Тестирование подключения
+telnet localhost 24122
+```
+4. Ошибка JSON парсинга
+```bash
+# Проверка синтаксиса JSON
+python3 -m json.tool /etc/mbusread/dev_list.json
+
+# Проверка структуры
+# Убедитесь, что есть объект "devices" и правильная структура
+```
+### Мониторинг производительности
+```bash
+# Использование памяти
+ps aux | grep mbusread
+
+# Количество TCP соединений
+ss -t | grep 24122
+
+# Частота опросов (лог каждые 100 циклов)
+sudo journalctl -u mbusread@coold1 | grep "Statistics"
+```
 ## Authors
 - [@AKA_ZejroN](https://github.com/akarnaukh)
