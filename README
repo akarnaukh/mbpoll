@@ -1,6 +1,0 @@
-sudo apt-get install libmodbus-dev libjansson-dev build-essential
-
-sudo systemctl start mbusread@mbusread
-sudo systemctl enable mbusread@mbusread
-
-sudo journalctl -fu mbusread-mbusread
