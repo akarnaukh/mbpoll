@@ -1,0 +1,8 @@
+.DS_Store
+.txt
+.tmp
+.o
+/bin
+/build
+/config
+/systemd
