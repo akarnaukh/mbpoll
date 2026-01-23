@@ -1,7 +1,7 @@
 #ifndef MODBUS_CLIENT_H
 #define MODBUS_CLIENT_H
 
-#include "daemon.h"
+#include "common.h"
 
 int init_modbus_connection(config_t *config);
 int reinit_modbus_connection(config_t *config);

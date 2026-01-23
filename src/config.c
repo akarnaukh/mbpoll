@@ -1,9 +1,4 @@
 #include "config.h"
-#include "daemon.h"
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <ctype.h>
 
 int load_config(const char *config_file, config_t *config) {
     log_info("Loading configuration from: %s", config_file);
@@ -16,6 +11,9 @@ int load_config(const char *config_file, config_t *config) {
     
     char line[256];
     int line_num = 0;
+    
+    // Устанавливаем значения по умолчанию
+    config->websocket_port = 0; // По умолчанию выключен
     
     while (fgets(line, sizeof(line), fp)) {
         line_num++;
@@ -65,6 +63,9 @@ int load_config(const char *config_file, config_t *config) {
         } else if (strcmp(key, "listing_port") == 0) {
             config->listing_port = atoi(value);
             log_debug("  Set listing port: %d", config->listing_port);
+        } else if (strcmp(key, "websocket_port") == 0) {
+            config->websocket_port = atoi(value);
+            log_debug("  Set WebSocket port: %d", config->websocket_port);
         } else if (strcmp(key, "log_level") == 0) {
             if (strcmp(value, "debug") == 0) {
                 config->log_level = LOG_LEVEL_DEBUG;
@@ -85,11 +86,6 @@ int load_config(const char *config_file, config_t *config) {
         } else if (strcmp(key, "dev_list_file") == 0) {
             config->device_list_file = strdup(value);
             log_debug("  Set device list file: %s", value);
-	} else if (strcmp(key, "connection_timeout_ms") == 0) {
-            int timeout_ms = atoi(value);
-            // Сохраняем где-нибудь в конфиге
-            // Пока просто логируем
-            log_debug("  Set connection timeout: %d ms", timeout_ms);
         } else {
             log_warn("Unknown configuration key: %s", key);
         }
@@ -134,6 +130,13 @@ int load_config(const char *config_file, config_t *config) {
         log_info("Using default listing port: 24122");
     }
     
+    if (config->websocket_port <= 0) {
+        log_info("WebSocket server disabled (port not specified)");
+    } else if (config->websocket_port == config->listing_port) {
+        log_error("WebSocket port cannot be the same as TCP port");
+        config->websocket_port = 0;
+    }
+    
     // Парсим строку устройства
     if (strstr(config->device_str, "/dev/") != NULL) {
         config->is_serial = 1;
@@ -157,6 +160,12 @@ int load_config(const char *config_file, config_t *config) {
     
     log_info("Poll interval: %d ms", config->poll_interval_ms);
     log_info("TCP server will listen on: %s:%d", config->listing_ip, config->listing_port);
+    
+    if (config->websocket_port > 0) {
+        log_info("WebSocket server will listen on: %s:%d", 
+                 config->listing_ip, config->websocket_port);
+    }
+    
     log_info("Log level: %s", 
              config->log_level == LOG_LEVEL_DEBUG ? "DEBUG" :
              config->log_level == LOG_LEVEL_INFO ? "INFO" :

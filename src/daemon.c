@@ -1,4 +1,9 @@
 #include "daemon.h"
+#include "config.h"
+#include "modbus_client.h"
+#include "device_list.h"
+#include "tcp_server.h"
+#include "websocket.h"
 #include <stdarg.h>
 
 config_t *g_config = NULL;
@@ -102,6 +107,25 @@ void cleanup(void) {
             modbus_close(g_config->mb_ctx);
             modbus_free(g_config->mb_ctx);
         }
+        
+        // Закрываем WebSocket соединения
+        if (g_config->ws_clients) {
+            log_info("Closing WebSocket connections...");
+            websocket_client_t *client = g_config->ws_clients;
+            while (client) {
+                websocket_client_t *next = client->next;
+                close_websocket_client(client);
+                client = next;
+            }
+            g_config->ws_clients = NULL;
+        }
+        
+        // Закрываем WebSocket сервер
+        if (g_config->ws_server_fd > 0) {
+            close(g_config->ws_server_fd);
+        }
+        
+        pthread_mutex_destroy(&g_config->ws_mutex);
         
         free(g_config->device_str);
         free(g_config->listing_ip);

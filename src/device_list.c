@@ -1,6 +1,6 @@
 #include "device_list.h"
-#include "daemon.h"
-#include <ctype.h>
+//#include "daemon.h"
+//#include <ctype.h>
 
 int parse_address_range(const char *str, int *start, int *end) {
     char *dash = strchr(str, '-');

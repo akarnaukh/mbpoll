@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>MBusRead WebSocket Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        #status { padding: 10px; margin: 10px 0; }
+        .connected { background-color: #d4edda; border: 1px solid #c3e6cb; }
+        .disconnected { background-color: #f8d7da; border: 1px solid #f5c6cb; }
+        .data { margin-top: 20px; }
+        table { border-collapse: collapse; width: 100%; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background-color: #f2f2f2; }
+        .device-available { color: green; }
+        .device-unavailable { color: red; }
+    </style>
+</head>
+<body>
+    <h1>MBusRead WebSocket Test</h1>
+    
+    <div id="status" class="disconnected">
+        Status: Disconnected
+    </div>
+    
+    <div>
+        <label for="wsUrl">WebSocket URL:</label>
+        <input type="text" id="wsUrl" value="ws://localhost:24123" size="40">
+        <button onclick="connect()">Connect</button>
+        <button onclick="disconnect()">Disconnect</button>
+    </div>
+    
+    <div class="data">
+        <h3>Last Update: <span id="lastUpdate">-</span></h3>
+        <h3>Devices: <span id="deviceCount">0</span></h3>
+        
+        <div id="devices"></div>
+        
+        <h3>Raw Data:</h3>
+        <pre id="rawData"></pre>
+    </div>
+    
+    <script>
+        let ws = null;
+        let lastData = null;
+        
+        function updateStatus(connected) {
+            const status = document.getElementById('status');
+            status.textContent = 'Status: ' + (connected ? 'Connected' : 'Disconnected');
+            status.className = connected ? 'connected' : 'disconnected';
+        }
+        
+        function connect() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                return;
+            }
+            
+            const url = document.getElementById('wsUrl').value;
+            ws = new WebSocket(url);
+            
+            ws.onopen = function() {
+                updateStatus(true);
+                console.log('WebSocket connected');
+            };
+            
+            ws.onmessage = function(event) {
+                try {
+                    const data = JSON.parse(event.data);
+                    lastData = data;
+                    updateDisplay(data);
+                } catch (e) {
+                    console.error('Error parsing JSON:', e);
+                }
+            };
+            
+            ws.onclose = function() {
+                updateStatus(false);
+                console.log('WebSocket disconnected');
+            };
+            
+            ws.onerror = function(error) {
+                console.error('WebSocket error:', error);
+                updateStatus(false);
+            };
+        }
+        
+        function disconnect() {
+            if (ws) {
+                ws.close();
+                ws = null;
+            }
+            updateStatus(false);
+        }
+        
+        function updateDisplay(data) {
+            // Update timestamp
+            const timestamp = new Date(data.timestamp * 1000);
+            document.getElementById('lastUpdate').textContent = 
+                timestamp.toLocaleString();
+            
+            // Update device count
+            const devices = data.devices || [];
+            document.getElementById('deviceCount').textContent = devices.length;
+            
+            // Update devices table
+            const devicesDiv = document.getElementById('devices');
+            let html = '<table>';
+            html += '<tr><th>Address</th><th>Status</th><th>Registers</th><th>Values</th></tr>';
+            
+            devices.forEach(device => {
+                html += '<tr>';
+                html += `<td>${device.address}</td>`;
+                html += `<td class="${device.available ? 'device-available' : 'device-unavailable'}">`;
+                html += device.available ? 'Available' : 'Unavailable';
+                html += '</td>';
+                
+                // Count registers
+                const registers = device.registers || [];
+                html += `<td>${registers.length} functions</td>`;
+                
+                // Show first register values
+                html += '<td>';
+                if (registers.length > 0) {
+                    const firstReg = registers[0];
+                    const values = firstReg.values || [];
+                    if (values.length > 0) {
+                        if (typeof values[0] === 'number') {
+                            html += values.slice(0, 3).map(v => v.toString(16).toUpperCase()).join(', ');
+                            if (values.length > 3) html += '...';
+                        } else {
+                            html += values.slice(0, 3).join(', ');
+                        }
+                    }
+                }
+                html += '</td>';
+                
+                html += '</tr>';
+            });
+            
+            html += '</table>';
+            devicesDiv.innerHTML = html;
+            
+            // Show raw data
+            document.getElementById('rawData').textContent = 
+                JSON.stringify(data, null, 2);
+        }
+        
+        // Auto-connect on page load
+        window.onload = function() {
+            connect();
+        };
+    </script>
+</body>
+</html>

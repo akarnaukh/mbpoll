@@ -1,8 +1,8 @@
 #include "modbus_client.h"
-#include "daemon.h"
-#include <errno.h>
-#include <string.h>
-#include <unistd.h>  // Добавляем для usleep
+//#include "daemon.h"
+//#include <errno.h>
+//#include <string.h>
+//#include <unistd.h>  // Добавляем для usleep
 
 int init_modbus_connection(config_t *config) {
     log_info("Initializing Modbus connection...");

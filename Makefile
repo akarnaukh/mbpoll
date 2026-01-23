@@ -1,12 +1,8 @@
 # Makefile для mbusread сервиса
 VERSION = 0.1
 CC = gcc
-
-# Проверяем наличие функции modbus_set_tcp_keepalive
-HAVE_TCP_KEEPALIVE := $(shell echo "\#include <modbus/modbus.h>\nint main() { modbus_set_tcp_keepalive(NULL, 0); return 0; }" | $(CC) -x c - -lmodbus -o /dev/null 2>/dev/null && echo "-DHAVE_TCP_KEEPALIVE")
-
-CFLAGS = -Wall -Wextra -O2 -std=c11 -DVERSION_STRING=\"$(VERSION)\" -D_POSIX_C_SOURCE=200809L $(HAVE_TCP_KEEPALIVE)
-LDFLAGS = -lmodbus -ljansson -pthread
+CFLAGS = -Wall -Wextra -O2 -std=c11 -D_POSIX_C_SOURCE=200809L
+LDFLAGS = -lmodbus -ljansson -pthread -lssl -lcrypto
 DEBUG_CFLAGS = -DDEBUG -g -O0
 
 SRC_DIR = src
@@ -15,13 +11,12 @@ BIN_NAME = mbusread
 INSTALL_DIR = /usr/local/bin
 SYSTEMD_DIR = /etc/systemd/system
 CONFIG_DIR = /etc/mbusread
-LOG_DIR = /var/log/mbusread
 
 # Поиск исходных файлов
 SRCS = $(wildcard $(SRC_DIR)/*.c)
 OBJS = $(SRCS:$(SRC_DIR)/%.c=$(BUILD_DIR)/%.o)
 
-.PHONY: all clean install uninstall template debug test monitor
+.PHONY: all clean install uninstall template debug
 
 all: clean build template
 
@@ -53,6 +48,7 @@ template:
 	@echo "" >> $(BUILD_DIR)/config/mbusread.conf
 	@echo "listing_ip = 0.0.0.0" >> $(BUILD_DIR)/config/mbusread.conf
 	@echo "listing_port = 24122" >> $(BUILD_DIR)/config/mbusread.conf
+	@echo "websocket_port = 24123" >> $(BUILD_DIR)/config/mbusread.conf
 	@echo "" >> $(BUILD_DIR)/config/mbusread.conf
 	@echo "log_level = info" >> $(BUILD_DIR)/config/mbusread.conf
 	@echo "# Доступны - debug: Все пишем в лог, включая данные регистров," >> $(BUILD_DIR)/config/mbusread.conf
@@ -88,42 +84,9 @@ install:
 	@mkdir -p $(CONFIG_DIR)
 	cp $(BUILD_DIR)/config/mbusread.conf $(CONFIG_DIR)/
 	cp $(BUILD_DIR)/systemd/mbusread@.service $(SYSTEMD_DIR)/
-	@mkdir -p $(LOG_DIR)
 	systemctl daemon-reload
 
 uninstall:
 	rm -f $(INSTALL_DIR)/$(BIN_NAME)
 	rm -f $(SYSTEMD_DIR)/mbusread@.service
 	systemctl daemon-reload
-
-# Проверяем версию libmodbus
-check-libmodbus:
-	@echo "Checking libmodbus version..."
-	@pkg-config --modversion libmodbus 2>/dev/null || echo "libmodbus version unknown"
-	@echo "HAVE_TCP_KEEPALIVE flag: $(HAVE_TCP_KEEPALIVE)"
-
-test:
-	@echo "=== Running quick test ==="
-	@./install_and_test.sh 2>/dev/null || echo "Test script not found, please create it first"
-
-monitor:
-	@echo "=== Monitoring service ==="
-	sudo journalctl -u mbusread@coold1 -f
-
-client-test:
-	@echo "=== Testing TCP client ==="
-	@./test_tcp_client.sh 2>/dev/null || echo "Test client script not found, please create it first"
-
-help:
-	@echo "Available targets:"
-	@echo "  all               - Clean, build and create templates"
-	@echo "  clean             - Remove build files"
-	@echo "  debug             - Build with debug symbols"
-	@echo "  install           - Install to system"
-	@echo "  uninstall         - Remove from system"
-	@echo "  check-libmodbus   - Check libmodbus version and features"
-	@echo "  test              - Run installation test"
-	@echo "  monitor           - Monitor service logs"
-	@echo "  client-test       - Test TCP client access"
-	@echo "  help              - Show this help"
-

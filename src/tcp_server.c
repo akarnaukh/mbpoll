@@ -1,6 +1,6 @@
 #include "tcp_server.h"
-#include "daemon.h"
-#include <sys/select.h>
+//#include "daemon.h"
+//#include <sys/select.h>
 
 void *tcp_server_thread(void *arg) {
     config_t *config = (config_t *)arg;

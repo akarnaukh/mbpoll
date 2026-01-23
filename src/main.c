@@ -3,33 +3,17 @@
 #include "modbus_client.h"
 #include "device_list.h"
 #include "tcp_server.h"
-#ifndef VERSION_STRING
-#define VERSION_STRING "unknown"
-#endif
+#include "websocket.h"
+
 int main(int argc, char *argv[]) {
-    int run_foreground = 0;
-    
-    // Проверяем аргументы
-    if (argc == 3 && strcmp(argv[1], "--foreground") == 0) {
-        run_foreground = 1;
-        argv[1] = argv[2]; // Сдвигаем аргументы
-    } else if (argc != 2) {
-	fprintf(stderr, "=== Modbus reader Service. Version:%s ===\n",VERSION_STRING);
-        fprintf(stderr, "Usage: %s [--foreground] <config_file>\n", argv[0]);
+    if (argc != 2) {
+        fprintf(stderr, "Usage: %s <config_file>\n", argv[0]);
         return EXIT_FAILURE;
     }
     
     // Открываем syslog
     openlog("mbusread", LOG_PID | LOG_CONS, LOG_DAEMON);
-//    log_info("=== Starting mbusread service ===");
-    if (run_foreground) {
-        log_info("=== Starting mbusread in foreground mode ===");
-        // В режиме foreground также выводим в stderr
-        fprintf(stderr, "=== Starting mbusread in foreground mode ===\n");
-    } else {
-        log_info("=== Starting mbusread service ===");
-    }
-
+    log_info("=== Starting mbusread service ===");
     log_info("Configuration file: %s", argv[1]);
     
     // Инициализируем конфигурацию
@@ -43,6 +27,7 @@ int main(int argc, char *argv[]) {
     // Устанавливаем значения по умолчанию
     g_config->poll_interval_ms = 1000;
     g_config->listing_port = 24122;
+    g_config->websocket_port = 0; // Выключен по умолчанию
     g_config->log_level = LOG_LEVEL_ERROR;
     
     // === ШАГ 1: Загрузка конфигурации ===
@@ -87,12 +72,34 @@ int main(int argc, char *argv[]) {
         return EXIT_FAILURE;
     }
     
-    // Отделяем поток, чтобы он завершился автоматически при выходе
     pthread_detach(tcp_thread);
+    
+    // === ШАГ 6: Запуск WebSocket сервера (если включен) ===
+    pthread_t websocket_thread = 0;
+    if (g_config->websocket_port > 0) {
+        log_info("=== Step 6: Starting WebSocket server ===");
+        if (init_websocket_server(g_config) == 0) {
+            if (pthread_create(&websocket_thread, NULL, websocket_server_thread, g_config) != 0) {
+                log_error("Failed to create WebSocket server thread");
+                // Продолжаем без WebSocket
+            } else {
+                pthread_detach(websocket_thread);
+                log_info("WebSocket server started on port %d", g_config->websocket_port);
+            }
+        }
+    } else {
+        log_info("=== Step 6: WebSocket server disabled ===");
+    }
     
     log_info("=== Service initialization complete ===");
     log_info("Poll interval: %d ms", g_config->poll_interval_ms);
     log_info("TCP server listening on %s:%d", g_config->listing_ip, g_config->listing_port);
+    
+    if (g_config->websocket_port > 0) {
+        log_info("WebSocket server listening on %s:%d", 
+                 g_config->listing_ip, g_config->websocket_port);
+    }
+    
     log_info("Ready to poll %d devices", g_config->device_count);
     
     // Устанавливаем обработчики сигналов
@@ -107,6 +114,10 @@ int main(int argc, char *argv[]) {
     int failed_polls = 0;
     int connection_check_counter = 0;
     
+    // Буфер для JSON данных
+    char *last_json_data = NULL;
+    size_t last_json_len = 0;
+    
     while (g_running) {
         loop_counter++;
         connection_check_counter++;
@@ -117,8 +128,7 @@ int main(int argc, char *argv[]) {
         
         pthread_mutex_lock(&g_data_mutex);
         
-        // Проверяем доступность соединения не каждый раз, а например, каждый 5-й цикл
-        // или если была предыдущая ошибка
+        // Проверяем доступность соединения не каждый раз
         int need_check = (connection_check_counter >= 5) || (failed_polls > 0);
         
         if (need_check && !check_modbus_connection(g_config)) {
@@ -131,12 +141,75 @@ int main(int argc, char *argv[]) {
                 continue;
             }
             log_info("Modbus connection reestablished");
-            connection_check_counter = 0; // Сбрасываем счетчик
+            connection_check_counter = 0;
         }
         
         // Опрашиваем все устройства
         poll_all_devices(g_config);
         successful_polls++;
+        
+        // Формируем JSON данные для WebSocket
+        if (g_config->websocket_port > 0) {
+            json_t *root = json_object();
+            json_t *devices_array = json_array();
+            
+            for (int i = 0; i < g_config->device_count; i++) {
+                modbus_device_t *device = &g_config->devices[i];
+                
+                json_t *device_obj = json_object();
+                json_object_set_new(device_obj, "address", json_integer(device->slave_address));
+                json_object_set_new(device_obj, "available", json_boolean(device->device_available));
+                
+                json_t *registers_array = json_array();
+                
+                for (int j = 0; j < device->range_count; j++) {
+                    register_range_t *range = &device->ranges[j];
+                    
+                    json_t *range_obj = json_object();
+                    json_object_set_new(range_obj, "function", json_integer(range->function));
+                    json_object_set_new(range_obj, "start", json_integer(range->start));
+                    json_object_set_new(range_obj, "quantity", json_integer(range->quantity));
+                    
+                    json_t *values_array = json_array();
+                    if (range->values && device->device_available) {
+                        for (int k = 0; k < range->quantity; k++) {
+                            json_array_append_new(values_array, json_integer(range->values[k]));
+                        }
+                    } else {
+                        for (int k = 0; k < range->quantity; k++) {
+                            json_array_append_new(values_array, json_string("na"));
+                        }
+                    }
+                    
+                    json_object_set_new(range_obj, "values", values_array);
+                    json_array_append_new(registers_array, range_obj);
+                }
+                
+                json_object_set_new(device_obj, "registers", registers_array);
+                json_array_append_new(devices_array, device_obj);
+            }
+            
+            json_object_set_new(root, "devices", devices_array);
+            json_object_set_new(root, "timestamp", json_integer(time(NULL)));
+            json_object_set_new(root, "poll_cycle", json_integer(loop_counter));
+            
+            char *json_str = json_dumps(root, JSON_COMPACT);
+            json_decref(root);
+            
+            if (json_str) {
+                // Отправляем данные всем WebSocket клиентам
+                broadcast_to_websockets(g_config, json_str, strlen(json_str));
+                
+                // Освобождаем предыдущие данные
+                if (last_json_data) {
+                    free(last_json_data);
+                }
+                
+                // Сохраняем для возможного повторного использования
+                last_json_data = json_str;
+                last_json_len = strlen(json_str);
+            }
+        }
         
         pthread_mutex_unlock(&g_data_mutex);
         
@@ -144,8 +217,6 @@ int main(int argc, char *argv[]) {
         struct timespec ts;
         ts.tv_sec = g_config->poll_interval_ms / 1000;
         ts.tv_nsec = (g_config->poll_interval_ms % 1000) * 1000000L;
-        
-        log_debug("Sleeping for %d ms...", g_config->poll_interval_ms);
         
         // Используем nanosleep с обработкой прерываний
         while (nanosleep(&ts, &ts) == -1 && errno == EINTR) {
@@ -167,6 +238,11 @@ int main(int argc, char *argv[]) {
     log_info("=== Service shutting down ===");
     log_info("Final statistics: %d polls completed (%d successful, %d failed)", 
             loop_counter, successful_polls, failed_polls);
+    
+    // Освобождаем JSON данные
+    if (last_json_data) {
+        free(last_json_data);
+    }
     
     // Очистка
     cleanup();
