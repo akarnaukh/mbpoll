@@ -137,7 +137,7 @@ int main(int argc, char *argv[]) {
         successful_polls++;
         
         // Формируем JSON данные для WebSocket
-        if (g_config->websocket_port > 0) {
+        if (g_config->websocket_port > 0 && !g_config->ws_request_output) {
             json_t *root = json_object();
             json_t *devices_array = json_array();
             

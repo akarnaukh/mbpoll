@@ -1,0 +1,15 @@
+[Unit]
+Description=Modbus Read Service %I
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/mbusread /etc/mbusread/%i.conf
+Restart=always
+RestartSec=5
+SyslogIdentifier=mbusread-%i
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
