@@ -1,15 +1,16 @@
 # MBusRead - ModBus TCP/RTU Polling Service
 ## Описание
-MBusRead - это система опроса Modbus устройств, работающая как демон systemd. Сервис опрашивает устройства в соответствии с конфигурационным файлом и указанным интервалом, предоставляя данные через TCP сокет и Websocket. 
+MBusRead - это система опроса Modbus устройств, работающая как демон systemd. Сервис опрашивает устройства в соответствии с конфигурационным файлом и указанным интервалом, предоставляя данные через Websocket. 
 
 ## Основные возможности:
 - Поддержка протоколов: Modbus TCP и RTU (последовательный порт)
-- Функции Modbus: 2 (Input Bits), 3 (Holding Registers), 4 (Input Registers)
+- Функции Modbus: 2 (Input Bits), 3 (Holding Registers), 4 (Input Registers), 5, 15, 6, 16
 - Управление устройствами: Гибкая конфигурация через JSON файл
 - Отказоустойчивость: Автоматическое переподключение при потере соединения
 - Мониторинг: Подробное логирование с различными уровнями
-- Доступ к данным: TCP API и Websocket с JSON форматом
+- Доступ к данным: Websocket с JSON форматом (как после опроса каждого устройства, так и после полного опроса)
 - Масштабируемость: Поддержка множества экземпляров через systemd templates
+- Запись данных: При получении запроса на запись, опрос преостанавливаеться, производиться запрос на запись, опрос из спииска продолжаеться
 
 ## Архитектура
 ```mermaid
@@ -85,10 +86,12 @@ device = 192.168.0.10:502
 poll_interval_ms = 5000 
 
 listing_ip = 0.0.0.0
-listing_port = 24122
 
 # Порт Websocket 
 websocket_port = 24123
+
+# Отправка данных после опроса каждого устройства 1 или в конце опроса всех 0 из списка
+ws_request_output = 1
 
 log_level = info
 # Доступны - debug: Все пишем в лог, включая данные регистров,
@@ -132,6 +135,22 @@ dev_list_file = /etc/mbusread/dev_list.json
         * Значение: объект с параметрами
             * s: стартовый адрес регистра
             * q: количество регистров
+#### Структура на запись
+{
+    "value": [5000, 2300, 4000, 7300],
+    "fc": 16,
+    "unitid": 210, - Modbus dev ID
+    "address": 5, - Register
+    "quantity": 4 
+}  
+
+{
+    "value": 25,
+    "fc": 6,
+    "unitid": 210,
+    "address": 5,
+    "quantity": 4
+}
 
 #### Поддерживаемые функции Modbus:
 
@@ -139,6 +158,10 @@ dev_list_file = /etc/mbusread/dev_list.json
 - `3`: Holding Registers (регистры хранения)
 - `4`: Input Registers (входные регистры)
 
+- `5`: 
+- `15`:
+- `6`:
+- `16`:
 
 
 ## Управление сервисом
@@ -180,37 +203,6 @@ sudo systemctl stop mbusread@coold1
 sudo /usr/local/bin/mbusread /etc/mbusread/coold1.conf 2>&1 | tee /tmp/mbusread.log
 ```
 
-## TCP API
-Сервис предоставляет данные через TCP сокет в формате JSON.
-## Подключение к API
-```bash
-# Использование netcat
-nc 0.0.0.0 24122 | head -c 1000
-
-# Использование telnet
-telnet 0.0.0.0 24122
-
-# Использование Python скрипта
-python3 -c "
-import socket
-import struct
-import json
-
-sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-sock.connect(('0.0.0.0', 24122))
-
-# Читаем длину данных (4 байта)
-data_len_bytes = sock.recv(4)
-data_len = struct.unpack('!I', data_len_bytes)[0]
-
-# Читаем JSON данные
-json_data = sock.recv(data_len)
-data = json.loads(json_data.decode('utf-8'))
-print(json.dumps(data, indent=2))
-
-sock.close()
-"
-```
 ### Формат ответа
 ```json
 {
