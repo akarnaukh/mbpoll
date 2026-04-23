@@ -1,4 +1,5 @@
 #include "modbus_client.h"
+#include "websocket.h"
 //#include "daemon.h"
 //#include <errno.h>
 //#include <string.h>
@@ -257,6 +258,10 @@ void poll_all_devices(config_t *config) {
                     device_timeout = 1;
                     device->device_available = 0;
                     
+                    // Отправляем в WebSocket если включено
+                    send_request_to_websockets(config, device->slave_address, range->function,
+                                              range->start, range->quantity, 0, NULL);
+                    
                     // Освобождаем память для значений
                     if (range->values) {
                         free(range->values);
@@ -268,6 +273,11 @@ void poll_all_devices(config_t *config) {
                 } else {
                     log_error("Error reading device %d: %s", 
                              device->slave_address, modbus_strerror(errno));
+                    
+                    // Отправляем в WebSocket если включено
+                    send_request_to_websockets(config, device->slave_address, range->function,
+                                              range->start, range->quantity, 0, NULL);
+                    
                     if (range->values) {
                         free(range->values);
                         range->values = NULL;
@@ -278,8 +288,17 @@ void poll_all_devices(config_t *config) {
                         device->slave_address, rc, range->quantity);
                 // Частичное чтение - отмечаем устройство как недоступное
                 device->device_available = 0;
+                
+                // Отправляем в WebSocket если включено
+                send_request_to_websockets(config, device->slave_address, range->function,
+                                          range->start, range->quantity, 0, NULL);
             } else {
                 device->device_available = 1;
+                
+                // Отправляем в WebSocket если включено
+                send_request_to_websockets(config, device->slave_address, range->function,
+                                          range->start, range->quantity, 1, range->values);
+                
                 if (config->log_level >= LOG_LEVEL_DEBUG) {
                     char debug_msg[1024];
                     int pos = snprintf(debug_msg, sizeof(debug_msg), 

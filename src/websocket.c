@@ -521,3 +521,99 @@ void close_websocket_client(websocket_client_t *client) {
     }
 }
 
+
+// Отправка данных отдельного запроса всем WebSocket клиентам
+void send_request_to_websockets(config_t *config, int device_address, int function, 
+                                 int start, int quantity, int success, uint16_t *values) {
+    if (!config->ws_request_output || config->websocket_port <= 0) {
+        return; // Функция отключена или WebSocket не запущен
+    }
+    
+    pthread_mutex_lock(&config->ws_mutex);
+    
+    if (config->ws_clients == NULL) {
+        pthread_mutex_unlock(&config->ws_mutex);
+        return; // Нет клиентов
+    }
+    
+    // Формируем JSON в том же формате как и полный результат опроса
+    json_t *root = json_object();
+    json_t *devices_array = json_array();
+    
+    json_t *device_obj = json_object();
+    json_object_set_new(device_obj, "address", json_integer(device_address));
+    json_object_set_new(device_obj, "available", json_boolean(success));
+    
+    json_t *registers_array = json_array();
+    json_t *range_obj = json_object();
+    json_object_set_new(range_obj, "function", json_integer(function));
+    json_object_set_new(range_obj, "start", json_integer(start));
+    json_object_set_new(range_obj, "quantity", json_integer(quantity));
+    
+    json_t *values_array = json_array();
+    if (success && values) {
+        for (int i = 0; i < quantity; i++) {
+            json_array_append_new(values_array, json_integer(values[i]));
+        }
+    } else {
+        for (int i = 0; i < quantity; i++) {
+            json_array_append_new(values_array, json_string("na"));
+        }
+    }
+    
+    json_object_set_new(range_obj, "values", values_array);
+    json_array_append_new(registers_array, range_obj);
+    json_object_set_new(device_obj, "registers", registers_array);
+    json_array_append_new(devices_array, device_obj);
+    
+    json_object_set_new(root, "devices", devices_array);
+    json_object_set_new(root, "timestamp", json_integer(time(NULL)));
+    json_object_set_new(root, "single_request", json_boolean(1));
+    
+    char *json_str = json_dumps(root, JSON_COMPACT);
+    json_decref(root);
+    
+    if (!json_str) {
+        pthread_mutex_unlock(&config->ws_mutex);
+        log_error("Failed to create JSON for request output");
+        return;
+    }
+    
+    // Отправляем всем клиентам
+    websocket_client_t *client = config->ws_clients;
+    websocket_client_t *prev = NULL;
+    int active_clients = 0;
+    
+    while (client) {
+        if (send_websocket_frame(client->fd, 0x1, json_str, strlen(json_str)) < 0) {
+            // Ошибка отправки, закрываем соединение
+            log_debug("WebSocket send failed, closing connection (fd: %d)", client->fd);
+            
+            if (prev) {
+                prev->next = client->next;
+            } else {
+                config->ws_clients = client->next;
+            }
+            
+            websocket_client_t *to_free = client;
+            client = client->next;
+            close(to_free->fd);
+            free(to_free);
+            continue;
+        }
+        
+        client->last_active = time(NULL);
+        active_clients++;
+        prev = client;
+        client = client->next;
+    }
+    
+    pthread_mutex_unlock(&config->ws_mutex);
+    
+    if (config->log_level >= LOG_LEVEL_DEBUG && active_clients > 0) {
+        log_debug("Sent request data to %d WebSocket clients (%zu bytes)",
+                 active_clients, strlen(json_str));
+    }
+    
+    free(json_str);
+}
