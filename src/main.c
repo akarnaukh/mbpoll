@@ -198,6 +198,7 @@ int main(int argc, char *argv[]) {
                 last_json_len = strlen(json_str);
             }
         }
+        // При ws_request_output = 1 данные отправляются по мере опроса в poll_all_devices()
         
         pthread_mutex_unlock(&g_data_mutex);
         

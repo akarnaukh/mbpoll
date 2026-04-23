@@ -174,6 +174,9 @@ void poll_all_devices(config_t *config) {
         
         log_debug("Polling device %d", device->slave_address);
         
+        // Сбрасываем флаг доступности перед опросом
+        device->device_available = 1;
+        
         for (int j = 0; j < device->range_count; j++) {
             register_range_t *range = &device->ranges[j];
             
@@ -258,10 +261,6 @@ void poll_all_devices(config_t *config) {
                     device_timeout = 1;
                     device->device_available = 0;
                     
-                    // Отправляем в WebSocket если включено
-                    send_request_to_websockets(config, device->slave_address, range->function,
-                                              range->start, range->quantity, 0, NULL);
-                    
                     // Освобождаем память для значений
                     if (range->values) {
                         free(range->values);
@@ -274,10 +273,6 @@ void poll_all_devices(config_t *config) {
                     log_error("Error reading device %d: %s", 
                              device->slave_address, modbus_strerror(errno));
                     
-                    // Отправляем в WebSocket если включено
-                    send_request_to_websockets(config, device->slave_address, range->function,
-                                              range->start, range->quantity, 0, NULL);
-                    
                     if (range->values) {
                         free(range->values);
                         range->values = NULL;
@@ -289,16 +284,11 @@ void poll_all_devices(config_t *config) {
                 // Частичное чтение - отмечаем устройство как недоступное
                 device->device_available = 0;
                 
-                // Отправляем в WebSocket если включено
-                send_request_to_websockets(config, device->slave_address, range->function,
-                                          range->start, range->quantity, 0, NULL);
+                if (range->values) {
+                    free(range->values);
+                    range->values = NULL;
+                }
             } else {
-                device->device_available = 1;
-                
-                // Отправляем в WebSocket если включено
-                send_request_to_websockets(config, device->slave_address, range->function,
-                                          range->start, range->quantity, 1, range->values);
-                
                 if (config->log_level >= LOG_LEVEL_DEBUG) {
                     char debug_msg[1024];
                     int pos = snprintf(debug_msg, sizeof(debug_msg), 
@@ -323,6 +313,11 @@ void poll_all_devices(config_t *config) {
             short_delay.tv_sec = 0;
             short_delay.tv_nsec = 50000000; // 50ms в наносекундах
             nanosleep(&short_delay, NULL);
+        }
+        
+        // После опроса всех диапазонов устройства отправляем данные в WebSocket если включено
+        if (config->ws_request_output && config->websocket_port > 0) {
+            send_device_to_websockets(config, device);
         }
         
         // Пауза между устройствами

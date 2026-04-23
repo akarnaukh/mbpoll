@@ -13,5 +13,8 @@ void close_websocket_client(websocket_client_t *client);
 void send_request_to_websockets(config_t *config, int device_address, int function, 
                                  int start, int quantity, int success, uint16_t *values);
 
+// Функция для отправки данных устройства в WebSocket (для ws_request_output)
+void send_device_to_websockets(config_t *config, modbus_device_t *device);
+
 #endif
 
