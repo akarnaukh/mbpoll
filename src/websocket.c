@@ -418,6 +418,11 @@ void *websocket_server_thread(void *arg) {
                         buffer[result < 100 ? result : 100] = '\0';
                         log_debug("WebSocket received: %s", buffer);
                     }
+                    
+                    // Обрабатываем команду записи Modbus если это JSON с командой
+                    if (result > 0) {
+                        process_modbus_write_command(config, buffer);
+                    }
                 }
             }
         }
@@ -718,3 +723,169 @@ void send_device_to_websockets(config_t *config, modbus_device_t *device) {
     
     free(json_str);
 }
+<<<<<<< HEAD
+=======
+
+// Обработка входящей команды записи Modbus
+void process_modbus_write_command(config_t *config, const char *json_data) {
+    if (!json_data || config->websocket_port <= 0) {
+        return;
+    }
+    
+    log_debug("Processing Modbus write command: %s", json_data);
+    
+    // Парсим JSON
+    json_error_t error;
+    json_t *root = json_loads(json_data, 0, &error);
+    if (!root) {
+        log_error("Failed to parse write command JSON: %s", error.text);
+        send_write_result_to_websocket(config, 0, "Invalid JSON format");
+        return;
+    }
+    
+    // Извлекаем поля
+    json_t *value_obj = json_object_get(root, "value");
+    json_t *fc_obj = json_object_get(root, "fc");
+    json_t *unitid_obj = json_object_get(root, "unitid");
+    json_t *address_obj = json_object_get(root, "address");
+    json_t *quantity_obj = json_object_get(root, "quantity");
+    
+    if (!value_obj || !fc_obj || !unitid_obj || !address_obj || !quantity_obj) {
+        log_error("Missing required fields in write command");
+        send_write_result_to_websocket(config, 0, "Missing required fields (value, fc, unitid, address, quantity)");
+        json_decref(root);
+        return;
+    }
+    
+    int value = json_integer_value(value_obj);
+    int fc = json_integer_value(fc_obj);
+    int unitid = json_integer_value(unitid_obj);
+    int address = json_integer_value(address_obj);
+    int quantity = json_integer_value(quantity_obj);
+    
+    // Проверяем функцию
+    if (fc != 5 && fc != 6 && fc != 15 && fc != 16) {
+        log_error("Unsupported function code: %d", fc);
+        send_write_result_to_websocket(config, 0, "Unsupported function code (must be 5, 6, 15 or 16)");
+        json_decref(root);
+        return;
+    }
+    
+    // Выделяем память для команды
+    pthread_mutex_lock(&config->write_queue_mutex);
+    
+    config->write_commands = realloc(config->write_commands, 
+                                     (config->write_command_count + 1) * sizeof(modbus_write_command_t));
+    if (!config->write_commands) {
+        pthread_mutex_unlock(&config->write_queue_mutex);
+        log_error("Memory allocation failed for write command");
+        send_write_result_to_websocket(config, 0, "Memory allocation failed");
+        json_decref(root);
+        return;
+    }
+    
+    modbus_write_command_t *cmd = &config->write_commands[config->write_command_count];
+    cmd->value = value;
+    cmd->function_code = fc;
+    cmd->unit_id = unitid;
+    cmd->address = address;
+    cmd->quantity = quantity;
+    cmd->values = NULL;
+    
+    // Для функций 15/16 может потребоваться массив значений
+    if ((fc == 15 || fc == 16) && quantity > 1) {
+        cmd->values = malloc(quantity * sizeof(uint16_t));
+        if (!cmd->values) {
+            pthread_mutex_unlock(&config->write_queue_mutex);
+            log_error("Memory allocation failed for values array");
+            send_write_result_to_websocket(config, 0, "Memory allocation failed");
+            json_decref(root);
+            return;
+        }
+        // Заполняем первым значением (для простоты)
+        for (int i = 0; i < quantity; i++) {
+            cmd->values[i] = (uint16_t)value;
+        }
+    }
+    
+    config->write_command_count++;
+    pthread_mutex_unlock(&config->write_queue_mutex);
+    
+    log_info("Write command queued: fc=%d, unit=%d, addr=%d, qty=%d, value=%d", 
+             fc, unitid, address, quantity, value);
+    
+    json_decref(root);
+}
+
+// Отправка результата записи в WebSocket
+void send_write_result_to_websocket(config_t *config, int success, const char *error_msg) {
+    if (config->websocket_port <= 0) {
+        return;
+    }
+    
+    pthread_mutex_lock(&config->ws_mutex);
+    
+    if (config->ws_clients == NULL) {
+        pthread_mutex_unlock(&config->ws_mutex);
+        return;
+    }
+    
+    // Формируем JSON ответа
+    json_t *root = json_object();
+    json_object_set_new(root, "success", json_boolean(success));
+    
+    if (!success && error_msg) {
+        json_object_set_new(root, "error", json_string(error_msg));
+    } else if (success) {
+        json_object_set_new(root, "error", json_null());
+    }
+    
+    json_object_set_new(root, "timestamp", json_integer(time(NULL)));
+    
+    char *json_str = json_dumps(root, JSON_COMPACT);
+    json_decref(root);
+    
+    if (!json_str) {
+        pthread_mutex_unlock(&config->ws_mutex);
+        log_error("Failed to create JSON for write result");
+        return;
+    }
+    
+    // Отправляем всем клиентам
+    websocket_client_t *client = config->ws_clients;
+    websocket_client_t *prev = NULL;
+    int active_clients = 0;
+    
+    while (client) {
+        if (send_websocket_frame(client->fd, 0x1, json_str, strlen(json_str)) < 0) {
+            log_debug("WebSocket send failed, closing connection (fd: %d)", client->fd);
+            
+            if (prev) {
+                prev->next = client->next;
+            } else {
+                config->ws_clients = client->next;
+            }
+            
+            websocket_client_t *to_free = client;
+            client = client->next;
+            close(to_free->fd);
+            free(to_free);
+            continue;
+        }
+        
+        client->last_active = time(NULL);
+        active_clients++;
+        prev = client;
+        client = client->next;
+    }
+    
+    pthread_mutex_unlock(&config->ws_mutex);
+    
+    if (config->log_level >= LOG_LEVEL_DEBUG && active_clients > 0) {
+        log_debug("Sent write result to %d WebSocket clients (%zu bytes)",
+                 active_clients, strlen(json_str));
+    }
+    
+    free(json_str);
+}
+>>>>>>> анализ-данных-62aef

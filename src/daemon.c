@@ -126,6 +126,19 @@ void cleanup(void) {
         
         pthread_mutex_destroy(&g_config->ws_mutex);
         
+        // Освобождаем очередь команд записи
+        pthread_mutex_lock(&g_config->write_queue_mutex);
+        if (g_config->write_commands) {
+            for (int i = 0; i < g_config->write_command_count; i++) {
+                free(g_config->write_commands[i].values);
+            }
+            free(g_config->write_commands);
+            g_config->write_commands = NULL;
+            g_config->write_command_count = 0;
+        }
+        pthread_mutex_unlock(&g_config->write_queue_mutex);
+        pthread_mutex_destroy(&g_config->write_queue_mutex);
+        
         free(g_config->device_str);
         free(g_config->listing_ip);
         free(g_config->device_list_file);

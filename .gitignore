@@ -1,32 +1,50 @@
 ```
+<<<<<<< HEAD
 # Compiled and build artifacts
+=======
+# Build artifacts
+>>>>>>> анализ-данных-62aef
 build/
 *.o
 *.obj
 *.out
+<<<<<<< HEAD
 mbusread
+=======
+>>>>>>> анализ-данных-62aef
 
 # Dependencies
 node_modules/
 .venv/
 venv/
 __pycache__/
+<<<<<<< HEAD
 *.egg-info/
+=======
+.mypy_cache/
+.pytest_cache/
+target/
+.gradle/
+>>>>>>> анализ-данных-62aef
 
 # Logs and temp files
 *.log
 *.tmp
 *.swp
 
+<<<<<<< HEAD
 # Editors
 .vscode/
 .idea/
 
+=======
+>>>>>>> анализ-данных-62aef
 # Environment
 .env
 .env.local
 *.env.*
 
+<<<<<<< HEAD
 # Coverage
 coverage/
 htmlcov/
@@ -62,3 +80,13 @@ target/
 *.tar.xz
 *.tar.zst
 ```
+=======
+# Editors
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+```
+>>>>>>> анализ-данных-62aef
