@@ -2,6 +2,7 @@
 # Compiled and build artifacts
 *.o
 *.obj
+build/
 *.out
 mbusread
 
