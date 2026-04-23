@@ -65,7 +65,7 @@ static int handle_websocket_handshake(int client_fd) {
     
     // Извлекаем ключ
     char ws_key[256];
-    int key_len = key_end - key_start;
+    unsigned int key_len = key_end - key_start;
     if (key_len >= sizeof(ws_key)) {
         return -1;
     }
@@ -160,7 +160,7 @@ static ssize_t read_websocket_frame(int fd, char *buffer, size_t buffer_size) {
         return -1;
     }
     
-    int fin = (header[0] & 0x80) != 0;
+//    int fin = (header[0] & 0x80) != 0;
     int opcode = header[0] & 0x0F;
     int masked = (header[1] & 0x80) != 0;
     uint64_t payload_len = header[1] & 0x7F;
