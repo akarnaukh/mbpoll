@@ -47,6 +47,16 @@ typedef struct {
     int device_available;  // 1 - доступно, 0 - недоступно
 } modbus_device_t;
 
+// Структура для команды записи Modbus
+typedef struct {
+    int value;
+    int function_code;  // 5, 6, 15, 16
+    int unit_id;
+    int address;
+    int quantity;
+    uint16_t *values;   // Для функций 15/16 - массив значений
+} modbus_write_command_t;
+
 // Структура для WebSocket клиента
 typedef struct websocket_client {
     int fd;
@@ -79,6 +89,14 @@ typedef struct config_s {
     
     // Вывод каждого запроса в WebSocket
     int ws_request_output;  // 1 - выводить каждый запрос, 0 - только полный результат
+    
+    // Очередь команд записи
+    modbus_write_command_t *write_commands;
+    int write_command_count;
+    pthread_mutex_t write_queue_mutex;
+    
+    // Флаг приостановки опроса
+    int pause_polling;
 } config_t;
 
 // Глобальные переменные (объявлены в daemon.c)

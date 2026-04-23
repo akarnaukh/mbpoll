@@ -1,9 +1,116 @@
 #include "modbus_client.h"
 #include "websocket.h"
-//#include "daemon.h"
-//#include <errno.h>
-//#include <string.h>
-//#include <unistd.h>  // Добавляем для usleep
+#include "daemon.h"
+#include <errno.h>
+#include <string.h>
+#include <unistd.h>
+
+// Функция выполнения команды записи Modbus
+static int execute_write_command(config_t *config, modbus_write_command_t *cmd) {
+    if (!config->mb_ctx) {
+        log_error("Modbus context is NULL");
+        return -1;
+    }
+    
+    // Устанавливаем адрес устройства
+    modbus_set_slave(config->mb_ctx, cmd->unit_id);
+    
+    int rc = -1;
+    switch (cmd->function_code) {
+        case 5: // Write Single Coil
+            log_debug("Writing single coil: addr=%d, value=%d", cmd->address, cmd->value ? 0xFF00 : 0);
+            rc = modbus_write_bit(config->mb_ctx, cmd->address, cmd->value ? 0xFF00 : 0);
+            break;
+            
+        case 6: // Write Single Register
+            log_debug("Writing single register: addr=%d, value=%d", cmd->address, cmd->value);
+            rc = modbus_write_register(config->mb_ctx, cmd->address, (uint16_t)cmd->value);
+            break;
+            
+        case 15: // Write Multiple Coils
+            log_debug("Writing multiple coils: addr=%d, quantity=%d", cmd->address, cmd->quantity);
+            if (cmd->values) {
+                uint8_t *coils = malloc(cmd->quantity * sizeof(uint8_t));
+                if (coils) {
+                    for (int i = 0; i < cmd->quantity; i++) {
+                        coils[i] = cmd->values[i] ? 1 : 0;
+                    }
+                    rc = modbus_write_bits(config->mb_ctx, cmd->address, cmd->quantity, coils);
+                    free(coils);
+                }
+            }
+            break;
+            
+        case 16: // Write Multiple Registers
+            log_debug("Writing multiple registers: addr=%d, quantity=%d", cmd->address, cmd->quantity);
+            if (cmd->values) {
+                rc = modbus_write_registers(config->mb_ctx, cmd->address, cmd->quantity, cmd->values);
+            }
+            break;
+            
+        default:
+            log_error("Unsupported function code: %d", cmd->function_code);
+            return -1;
+    }
+    
+    if (rc == -1) {
+        log_error("Write command failed: %s", modbus_strerror(errno));
+        return -1;
+    }
+    
+    log_info("Write command successful: fc=%d, unit=%d, addr=%d, qty=%d", 
+             cmd->function_code, cmd->unit_id, cmd->address, cmd->quantity);
+    return 0;
+}
+
+// Проверка и выполнение команд записи из очереди
+int check_and_execute_write_commands(config_t *config) {
+    if (!config || config->write_command_count == 0) {
+        return 0;
+    }
+    
+    pthread_mutex_lock(&config->write_queue_mutex);
+    
+    if (config->write_command_count == 0) {
+        pthread_mutex_unlock(&config->write_queue_mutex);
+        return 0;
+    }
+    
+    // Берем первую команду из очереди
+    modbus_write_command_t cmd = config->write_commands[0];
+    
+    // Сдвигаем очередь
+    if (config->write_command_count > 1) {
+        memmove(&config->write_commands[0], &config->write_commands[1],
+                (config->write_command_count - 1) * sizeof(modbus_write_command_t));
+    }
+    config->write_command_count--;
+    
+    pthread_mutex_unlock(&config->write_queue_mutex);
+    
+    // Устанавливаем флаг приостановки опроса
+    config->pause_polling = 1;
+    
+    // Выполняем команду записи
+    int success = (execute_write_command(config, &cmd) == 0);
+    
+    // Отправляем результат в WebSocket
+    if (success) {
+        send_write_result_to_websocket(config, 1, NULL);
+    } else {
+        char error_msg[256];
+        snprintf(error_msg, sizeof(error_msg), "%s", modbus_strerror(errno));
+        send_write_result_to_websocket(config, 0, error_msg);
+    }
+    
+    // Освобождаем память команды
+    free(cmd.values);
+    
+    // Сбрасываем флаг приостановки
+    config->pause_polling = 0;
+    
+    return 1;
+}
 
 int init_modbus_connection(config_t *config) {
     log_info("Initializing Modbus connection...");

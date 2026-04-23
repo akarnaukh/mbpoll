@@ -29,6 +29,10 @@ int main(int argc, char *argv[]) {
     g_config->websocket_port = 0; // Выключен по умолчанию
     g_config->ws_request_output = 0; // Выключен по умолчанию
     g_config->log_level = LOG_LEVEL_ERROR;
+    g_config->write_commands = NULL;
+    g_config->write_command_count = 0;
+    g_config->pause_polling = 0;
+    pthread_mutex_init(&g_config->write_queue_mutex, NULL);
     
     // === ШАГ 1: Загрузка конфигурации ===
     log_info("=== Step 1: Loading configuration ===");
@@ -104,7 +108,6 @@ int main(int argc, char *argv[]) {
     
     // Буфер для JSON данных
     char *last_json_data = NULL;
-    size_t last_json_len = 0;
     
     while (g_running) {
         loop_counter++;
@@ -115,6 +118,19 @@ int main(int argc, char *argv[]) {
         }
         
         pthread_mutex_lock(&g_data_mutex);
+        
+        // Проверяем и выполняем команды записи из очереди (приостанавливая опрос)
+        if (check_and_execute_write_commands(g_config)) {
+            log_debug("Write command executed, continuing to next cycle");
+            pthread_mutex_unlock(&g_data_mutex);
+            
+            // Короткая пауза после записи
+            struct timespec write_delay;
+            write_delay.tv_sec = 0;
+            write_delay.tv_nsec = 50000000; // 50ms
+            nanosleep(&write_delay, NULL);
+            continue;
+        }
         
         // Проверяем доступность соединения не каждый раз
         int need_check = (connection_check_counter >= 5) || (failed_polls > 0);
@@ -195,7 +211,6 @@ int main(int argc, char *argv[]) {
                 
                 // Сохраняем для возможного повторного использования
                 last_json_data = json_str;
-                last_json_len = strlen(json_str);
             }
         }
         // При ws_request_output = 1 данные отправляются по мере опроса в poll_all_devices()
