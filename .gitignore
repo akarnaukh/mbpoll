@@ -1,8 +1,8 @@
 ```
 # Compiled and build artifacts
+build/
 *.o
 *.obj
-build/
 *.out
 mbusread
 
