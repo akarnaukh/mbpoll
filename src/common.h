@@ -76,9 +76,6 @@ typedef struct config_s {
     websocket_client_t *ws_clients;
     pthread_mutex_t ws_mutex;
     int ws_server_fd;
-    
-    // Вывод каждого запроса в WebSocket
-    int ws_request_output;  // 1 - выводить каждый запрос, 0 - только полный результат
 } config_t;
 
 // Глобальные переменные (объявлены в daemon.c)

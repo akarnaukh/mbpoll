@@ -14,7 +14,6 @@ int load_config(const char *config_file, config_t *config) {
     
     // Устанавливаем значения по умолчанию
     config->websocket_port = 0; // По умолчанию выключен
-    config->ws_request_output = 0; // По умолчанию выключен
     
     while (fgets(line, sizeof(line), fp)) {
         line_num++;
@@ -87,9 +86,6 @@ int load_config(const char *config_file, config_t *config) {
         } else if (strcmp(key, "dev_list_file") == 0) {
             config->device_list_file = strdup(value);
             log_debug("  Set device list file: %s", value);
-        } else if (strcmp(key, "ws_request_output") == 0) {
-            config->ws_request_output = (strcmp(value, "1") == 0 || strcmp(value, "true") == 0 || strcmp(value, "yes") == 0) ? 1 : 0;
-            log_debug("  Set WebSocket request output: %d", config->ws_request_output);
         } else {
             log_warn("Unknown configuration key: %s", key);
         }
@@ -168,9 +164,6 @@ int load_config(const char *config_file, config_t *config) {
     if (config->websocket_port > 0) {
         log_info("WebSocket server will listen on: %s:%d", 
                  config->listing_ip, config->websocket_port);
-        if (config->ws_request_output) {
-            log_info("WebSocket request output enabled (real-time request reporting)");
-        }
     }
     
     log_info("Log level: %s", 

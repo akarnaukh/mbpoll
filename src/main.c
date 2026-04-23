@@ -2,6 +2,7 @@
 #include "config.h"
 #include "modbus_client.h"
 #include "device_list.h"
+#include "tcp_server.h"
 #include "websocket.h"
 
 int main(int argc, char *argv[]) {
@@ -27,7 +28,6 @@ int main(int argc, char *argv[]) {
     g_config->poll_interval_ms = 1000;
     g_config->listing_port = 24122;
     g_config->websocket_port = 0; // Выключен по умолчанию
-    g_config->ws_request_output = 0; // Выключен по умолчанию
     g_config->log_level = LOG_LEVEL_ERROR;
     
     // === ШАГ 1: Загрузка конфигурации ===
@@ -63,10 +63,21 @@ int main(int argc, char *argv[]) {
         log_info("Modbus connection is OK");
     }
     
-    // === ШАГ 5: Запуск WebSocket сервера (если включен) ===
+    // === ШАГ 5: Запуск TCP сервера ===
+    log_info("=== Step 5: Starting TCP server ===");
+    pthread_t tcp_thread;
+    if (pthread_create(&tcp_thread, NULL, tcp_server_thread, g_config) != 0) {
+        log_error("Failed to create TCP server thread");
+        cleanup();
+        return EXIT_FAILURE;
+    }
+    
+    pthread_detach(tcp_thread);
+    
+    // === ШАГ 6: Запуск WebSocket сервера (если включен) ===
     pthread_t websocket_thread = 0;
     if (g_config->websocket_port > 0) {
-        log_info("=== Step 5: Starting WebSocket server ===");
+        log_info("=== Step 6: Starting WebSocket server ===");
         if (init_websocket_server(g_config) == 0) {
             if (pthread_create(&websocket_thread, NULL, websocket_server_thread, g_config) != 0) {
                 log_error("Failed to create WebSocket server thread");
@@ -77,11 +88,12 @@ int main(int argc, char *argv[]) {
             }
         }
     } else {
-        log_info("=== Step 5: WebSocket server disabled ===");
+        log_info("=== Step 6: WebSocket server disabled ===");
     }
     
     log_info("=== Service initialization complete ===");
     log_info("Poll interval: %d ms", g_config->poll_interval_ms);
+    log_info("TCP server listening on %s:%d", g_config->listing_ip, g_config->listing_port);
     
     if (g_config->websocket_port > 0) {
         log_info("WebSocket server listening on %s:%d", 

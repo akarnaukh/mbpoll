@@ -50,9 +50,6 @@ template:
 	@echo "listing_port = 24122" >> $(BUILD_DIR)/config/mbusread.conf
 	@echo "websocket_port = 24123" >> $(BUILD_DIR)/config/mbusread.conf
 	@echo "" >> $(BUILD_DIR)/config/mbusread.conf
-	@echo "# Вывод каждого запроса в WebSocket (real-time)" >> $(BUILD_DIR)/config/mbusread.conf
-	@echo "# ws_request_output = 1" >> $(BUILD_DIR)/config/mbusread.conf
-	@echo "" >> $(BUILD_DIR)/config/mbusread.conf
 	@echo "log_level = info" >> $(BUILD_DIR)/config/mbusread.conf
 	@echo "# Доступны - debug: Все пишем в лог, включая данные регистров," >> $(BUILD_DIR)/config/mbusread.conf
 	@echo "# info: События modbus, warn - timeout при чтении," >> $(BUILD_DIR)/config/mbusread.conf

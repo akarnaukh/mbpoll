@@ -2,6 +2,7 @@
 #include "config.h"
 #include "modbus_client.h"
 #include "device_list.h"
+#include "tcp_server.h"
 #include "websocket.h"
 #include <stdarg.h>
 
