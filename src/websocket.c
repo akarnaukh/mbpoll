@@ -723,8 +723,6 @@ void send_device_to_websockets(config_t *config, modbus_device_t *device) {
     
     free(json_str);
 }
-<<<<<<< HEAD
-=======
 
 // Обработка входящей команды записи Modbus
 void process_modbus_write_command(config_t *config, const char *json_data) {
@@ -888,4 +886,3 @@ void send_write_result_to_websocket(config_t *config, int success, const char *e
     
     free(json_str);
 }
->>>>>>> анализ-данных-62aef

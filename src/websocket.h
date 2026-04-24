@@ -16,14 +16,10 @@ void send_request_to_websockets(config_t *config, int device_address, int functi
 // Функция для отправки данных устройства в WebSocket (для ws_request_output)
 void send_device_to_websockets(config_t *config, modbus_device_t *device);
 
-<<<<<<< HEAD
-=======
 // Функция для обработки входящих команд записи Modbus
 void process_modbus_write_command(config_t *config, const char *json_data);
 
 // Функция для отправки результата записи в WebSocket
 void send_write_result_to_websocket(config_t *config, int success, const char *error_msg);
-
->>>>>>> анализ-данных-62aef
 #endif
 

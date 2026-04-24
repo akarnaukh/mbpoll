@@ -47,7 +47,6 @@ template:
 	@echo "poll_interval_ms = 5000" >> $(BUILD_DIR)/config/mbusread.conf
 	@echo "" >> $(BUILD_DIR)/config/mbusread.conf
 	@echo "listing_ip = 0.0.0.0" >> $(BUILD_DIR)/config/mbusread.conf
-	@echo "listing_port = 24122" >> $(BUILD_DIR)/config/mbusread.conf
 	@echo "websocket_port = 24123" >> $(BUILD_DIR)/config/mbusread.conf
 	@echo "" >> $(BUILD_DIR)/config/mbusread.conf
 	@echo "# Вывод каждого запроса в WebSocket (real-time)" >> $(BUILD_DIR)/config/mbusread.conf
