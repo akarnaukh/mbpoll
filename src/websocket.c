@@ -229,13 +229,21 @@ int init_websocket_server(config_t *config) {
         return -1;
     }
     
-    // Позволяем повторно использовать адрес
+    // Позволяем повторно использовать адрес и порт
     int opt = 1;
     if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt))) {
-        log_error("WebSocket: setsockopt failed: %s", strerror(errno));
+        log_error("WebSocket: setsockopt SO_REUSEADDR failed: %s", strerror(errno));
         close(server_fd);
         return -1;
     }
+    
+#ifdef SO_REUSEPORT
+    if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEPORT, &opt, sizeof(opt))) {
+        log_error("WebSocket: setsockopt SO_REUSEPORT failed: %s", strerror(errno));
+        close(server_fd);
+        return -1;
+    }
+#endif
     
     // Устанавливаем неблокирующий режим
     int flags = fcntl(server_fd, F_GETFL, 0);
