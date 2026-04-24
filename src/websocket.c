@@ -737,7 +737,7 @@ void process_modbus_write_command(config_t *config, const char *json_data) {
     json_t *root = json_loads(json_data, 0, &error);
     if (!root) {
         log_error("Failed to parse write command JSON: %s", error.text);
-        send_write_result_to_websocket(config, 0, "Invalid JSON format");
+        send_write_result_to_websocket(config, 0, "Invalid JSON format", NULL);
         return;
     }
     
@@ -750,7 +750,7 @@ void process_modbus_write_command(config_t *config, const char *json_data) {
     
     if (!value_obj || !fc_obj || !unitid_obj || !address_obj || !quantity_obj) {
         log_error("Missing required fields in write command");
-        send_write_result_to_websocket(config, 0, "Missing required fields (value, fc, unitid, address, quantity)");
+        send_write_result_to_websocket(config, 0, "Missing required fields (value, fc, unitid, address, quantity)", NULL);
         json_decref(root);
         return;
     }
@@ -764,59 +764,43 @@ void process_modbus_write_command(config_t *config, const char *json_data) {
     // Проверяем функцию
     if (fc != 5 && fc != 6 && fc != 15 && fc != 16) {
         log_error("Unsupported function code: %d", fc);
-        send_write_result_to_websocket(config, 0, "Unsupported function code (must be 5, 6, 15 or 16)");
+        send_write_result_to_websocket(config, 0, "Unsupported function code (must be 5, 6, 15 or 16)", NULL);
         json_decref(root);
         return;
     }
     
-    // Выделяем память для команды
-    pthread_mutex_lock(&config->write_queue_mutex);
-    
-    config->write_commands = realloc(config->write_commands, 
-                                     (config->write_command_count + 1) * sizeof(modbus_write_command_t));
-    if (!config->write_commands) {
-        pthread_mutex_unlock(&config->write_queue_mutex);
-        log_error("Memory allocation failed for write command");
-        send_write_result_to_websocket(config, 0, "Memory allocation failed");
-        json_decref(root);
-        return;
-    }
-    
-    modbus_write_command_t *cmd = &config->write_commands[config->write_command_count];
-    cmd->value = value;
-    cmd->function_code = fc;
-    cmd->unit_id = unitid;
-    cmd->address = address;
-    cmd->quantity = quantity;
-    cmd->values = NULL;
+    // Создаем команду для выполнения
+    modbus_write_command_t cmd;
+    cmd.value = value;
+    cmd.function_code = fc;
+    cmd.unit_id = unitid;
+    cmd.address = address;
+    cmd.quantity = quantity;
+    cmd.values = NULL;
     
     // Для функций 15/16 может потребоваться массив значений
     if ((fc == 15 || fc == 16) && quantity > 1) {
-        cmd->values = malloc(quantity * sizeof(uint16_t));
-        if (!cmd->values) {
-            pthread_mutex_unlock(&config->write_queue_mutex);
+        cmd.values = malloc(quantity * sizeof(uint16_t));
+        if (!cmd.values) {
             log_error("Memory allocation failed for values array");
-            send_write_result_to_websocket(config, 0, "Memory allocation failed");
+            send_write_result_to_websocket(config, 0, "Memory allocation failed", NULL);
             json_decref(root);
             return;
         }
         // Заполняем первым значением (для простоты)
         for (int i = 0; i < quantity; i++) {
-            cmd->values[i] = (uint16_t)value;
+            cmd.values[i] = (uint16_t)value;
         }
     }
     
-    config->write_command_count++;
-    pthread_mutex_unlock(&config->write_queue_mutex);
-    
-    log_info("Write command queued: fc=%d, unit=%d, addr=%d, qty=%d, value=%d", 
-             fc, unitid, address, quantity, value);
-    
     json_decref(root);
+    
+    // Выполняем команду немедленно
+    execute_modbus_write_immediate(config, &cmd);
 }
 
 // Отправка результата записи в WebSocket
-void send_write_result_to_websocket(config_t *config, int success, const char *error_msg) {
+void send_write_result_to_websocket(config_t *config, int success, const char *error_msg, modbus_write_command_t *cmd) {
     if (config->websocket_port <= 0) {
         return;
     }
@@ -830,12 +814,23 @@ void send_write_result_to_websocket(config_t *config, int success, const char *e
     
     // Формируем JSON ответа
     json_t *root = json_object();
+    json_object_set_new(root, "type", json_string("write_result"));
     json_object_set_new(root, "success", json_boolean(success));
     
     if (!success && error_msg) {
         json_object_set_new(root, "error", json_string(error_msg));
-    } else if (success) {
+    } else {
         json_object_set_new(root, "error", json_null());
+    }
+    
+    // Добавляем детали запроса
+    if (cmd) {
+        json_t *details = json_object();
+        json_object_set_new(details, "unitid", json_integer(cmd->unit_id));
+        json_object_set_new(details, "function", json_integer(cmd->function_code));
+        json_object_set_new(details, "address", json_integer(cmd->address));
+        json_object_set_new(details, "quantity", json_integer(cmd->quantity));
+        json_object_set_new(root, "details", details);
     }
     
     json_object_set_new(root, "timestamp", json_integer(time(NULL)));

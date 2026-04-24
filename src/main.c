@@ -119,7 +119,9 @@ int main(int argc, char *argv[]) {
         
         pthread_mutex_lock(&g_data_mutex);
         
-        // Проверяем и выполняем команды записи из очереди (приостанавливая опрос)
+        // Проверяем и выполняем команды записи из очереди (немедленно, без ожидания)
+        // Если идет опрос - flag pause_polling будет установлен и poll_all_devices прервется
+        // После выполнения записи опрос продолжится в следующем цикле
         if (check_and_execute_write_commands(g_config)) {
             log_debug("Write command executed, continuing to next cycle");
             pthread_mutex_unlock(&g_data_mutex);

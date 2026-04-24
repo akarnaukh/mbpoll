@@ -20,6 +20,6 @@ void send_device_to_websockets(config_t *config, modbus_device_t *device);
 void process_modbus_write_command(config_t *config, const char *json_data);
 
 // Функция для отправки результата записи в WebSocket
-void send_write_result_to_websocket(config_t *config, int success, const char *error_msg);
+void send_write_result_to_websocket(config_t *config, int success, const char *error_msg, modbus_write_command_t *cmd);
 #endif
 
