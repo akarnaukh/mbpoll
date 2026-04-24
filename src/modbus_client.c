@@ -5,8 +5,8 @@
 #include <string.h>
 #include <unistd.h>
 
-// Функция выполнения команды записи Modbus
-static int execute_write_command(config_t *config, modbus_write_command_t *cmd) {
+// Функция выполнения команды записи Modbus (публичная)
+int execute_modbus_write(config_t *config, modbus_write_command_t *cmd) {
     if (!config->mb_ctx) {
         log_error("Modbus context is NULL");
         return -1;
@@ -63,7 +63,14 @@ static int execute_write_command(config_t *config, modbus_write_command_t *cmd) 
     return 0;
 }
 
+// Функция выполнения команды записи Modbus (приватная, для обратной совместимости)
+static int execute_write_command(config_t *config, modbus_write_command_t *cmd) {
+    return execute_modbus_write(config, cmd);
+}
+
 // Проверка и выполнение команд записи из очереди
+// Возвращает 1 если команда была выполнена, 0 если очередь пуста
+// Выполняет запись немедленно, не дожидаясь окончания интервала опроса
 int check_and_execute_write_commands(config_t *config) {
     if (!config || config->write_command_count == 0) {
         return 0;
@@ -94,22 +101,58 @@ int check_and_execute_write_commands(config_t *config) {
     // Выполняем команду записи
     int success = (execute_write_command(config, &cmd) == 0);
     
-    // Отправляем результат в WebSocket
+    // Отправляем результат в WebSocket с деталями запроса
     if (success) {
-        send_write_result_to_websocket(config, 1, NULL);
+        send_write_result_to_websocket(config, 1, NULL, &cmd);
     } else {
         char error_msg[256];
         snprintf(error_msg, sizeof(error_msg), "%s", modbus_strerror(errno));
-        send_write_result_to_websocket(config, 0, error_msg);
+        send_write_result_to_websocket(config, 0, error_msg, &cmd);
     }
     
     // Освобождаем память команды
     free(cmd.values);
     
-    // Сбрасываем флаг приостановки
+    // Сбрасываем флаг приостановки и продолжаем опрос
     config->pause_polling = 0;
     
     return 1;
+}
+
+// Немедленное выполнение команды записи Modbus (без ожидания интервала опроса)
+// Если идет опрос чтения регистров устройства - ждем окончания чтения текущего устройства
+// приостанавливаем опрос - выполняем запрос на запись - отправляем результат в WS
+// параллельно запуская опрос дальше.
+// Если идет ожидание следующего цикла опроса устройств - сразу отправляем запрос на запись,
+// отправляем результат в WS, продолжаем ждать сколько осталось.
+void execute_modbus_write_immediate(config_t *config, modbus_write_command_t *cmd) {
+    if (!config || !cmd) {
+        return;
+    }
+    
+    log_info("Executing immediate write command: fc=%d, unit=%d, addr=%d, qty=%d", 
+             cmd->function_code, cmd->unit_id, cmd->address, cmd->quantity);
+    
+    // Устанавливаем флаг приостановки опроса
+    config->pause_polling = 1;
+    
+    // Выполняем команду записи
+    int success = (execute_modbus_write(config, cmd) == 0);
+    
+    // Отправляем результат в WebSocket с деталями запроса
+    if (success) {
+        send_write_result_to_websocket(config, 1, NULL, cmd);
+    } else {
+        char error_msg[256];
+        snprintf(error_msg, sizeof(error_msg), "%s", modbus_strerror(errno));
+        send_write_result_to_websocket(config, 0, error_msg, cmd);
+    }
+    
+    // Освобождаем память для массива значений если есть
+    free(cmd->values);
+    
+    // Сбрасываем флаг приостановки и продолжаем опрос
+    config->pause_polling = 0;
 }
 
 int init_modbus_connection(config_t *config) {
@@ -286,6 +329,12 @@ void poll_all_devices(config_t *config) {
         
         for (int j = 0; j < device->range_count; j++) {
             register_range_t *range = &device->ranges[j];
+            
+            // Проверяем, не поступила ли команда записи - если да, приостанавливаем опрос
+            if (config->pause_polling) {
+                log_debug("Polling paused for write command, continuing to next cycle");
+                return;
+            }
             
             // Если устройство уже недоступно, пропускаем остальные диапазоны
             if (device_timeout) {
