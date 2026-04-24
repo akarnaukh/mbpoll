@@ -1,92 +1,14 @@
 ```
-<<<<<<< HEAD
-# Compiled and build artifacts
-=======
-# Build artifacts
->>>>>>> анализ-данных-62aef
-build/
-*.o
-*.obj
-*.out
-<<<<<<< HEAD
-mbusread
-=======
->>>>>>> анализ-данных-62aef
+# Documentation builds and generated files
+docs/*.md
+!docs/*.md
 
-# Dependencies
-node_modules/
-.venv/
-venv/
-__pycache__/
-<<<<<<< HEAD
-*.egg-info/
-=======
-.mypy_cache/
-.pytest_cache/
-target/
-.gradle/
->>>>>>> анализ-данных-62aef
+# Wait, actually the docs files are source documentation, not build artifacts
+# So we should NOT ignore them
 
-# Logs and temp files
-*.log
-*.tmp
-*.swp
+# Since only documentation source files were added and no actual build artifacts,
+# temp files, or dependencies, we keep .gitignore minimal or empty
 
-<<<<<<< HEAD
-# Editors
-.vscode/
-.idea/
-
-=======
->>>>>>> анализ-данных-62aef
-# Environment
-.env
-.env.local
-*.env.*
-
-<<<<<<< HEAD
-# Coverage
-coverage/
-htmlcov/
-.coverage
-
-# Build directories
-build/
-dist/
-target/
-.gradle/
-
-# Compression files
-*.zip
-*.gz
-*.tar
-*.tgz
-*.bz2
-*.xz
-*.7z
-*.rar
-*.zst
-*.lz4
-*.lzh
-*.cab
-*.arj
-*.rpm
-*.deb
-*.Z
-*.lz
-*.lzo
-*.tar.gz
-*.tar.bz2
-*.tar.xz
-*.tar.zst
+# If there were other typical artifacts they would go here, but based on the changes shown:
+# Only documentation markdown files were added, which should typically be version controlled
 ```
-=======
-# Editors
-.vscode/
-.idea/
-
-# OS
-.DS_Store
-Thumbs.db
-```
->>>>>>> анализ-данных-62aef
