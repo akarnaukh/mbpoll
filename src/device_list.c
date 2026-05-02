@@ -48,16 +48,35 @@ int load_device_list(config_t *config) {
     
     // Сначала подсчитаем общее количество устройств
     config->device_count = 0;
-    const char *key;
-    json_t *value;
+    const char *name_key;
+    json_t *name_value;
     
     log_debug("Counting devices...");
-    json_object_foreach(devices, key, value) {
+    json_object_foreach(devices, name_key, name_value) {
+        if (!json_is_object(name_value)) {
+            log_warn("Device '%s' is not an object, skipping", name_key);
+            continue;
+        }
+        
+        // Внутри имени устройства ищем адреса
+        json_t *addr_obj = json_object_get(name_value, "address");
+        if (!addr_obj) {
+            log_warn("Device '%s' has no 'address' field, skipping", name_key);
+            continue;
+        }
+        
+        const char *addr_key = json_string_value(addr_obj);
+        if (!addr_key) {
+            log_warn("Device '%s' has invalid 'address' field, skipping", name_key);
+            continue;
+        }
+        
         int start, end;
-        parse_address_range(key, &start, &end);
+        parse_address_range(addr_key, &start, &end);
         int devices_in_range = (end - start + 1);
         config->device_count += devices_in_range;
-        log_debug("  Range '%s': %d devices (from %d to %d)", key, devices_in_range, start, end);
+        log_debug("  Device '%s', address range '%s': %d devices (from %d to %d)", 
+                  name_key, addr_key, devices_in_range, start, end);
     }
     
     log_info("Total devices to load: %d", config->device_count);
@@ -82,14 +101,36 @@ int load_device_list(config_t *config) {
     // Заполняем структуры устройств
     log_debug("Processing device definitions...");
     int device_index = 0;
-    json_object_foreach(devices, key, value) {
+    json_object_foreach(devices, name_key, name_value) {
+        if (!json_is_object(name_value)) {
+            continue;
+        }
+        
+        json_t *addr_obj = json_object_get(name_value, "address");
+        if (!addr_obj) {
+            continue;
+        }
+        
+        const char *addr_key = json_string_value(addr_obj);
+        if (!addr_key) {
+            continue;
+        }
+        
         int start_addr, end_addr;
-        int is_range = parse_address_range(key, &start_addr, &end_addr);
+        int is_range = parse_address_range(addr_key, &start_addr, &end_addr);
+        
+        // Получаем диапазоны регистров из объекта ranges
+        json_t *ranges_obj = json_object_get(name_value, "ranges");
+        if (!ranges_obj || !json_is_object(ranges_obj)) {
+            log_warn("Device '%s' has no 'ranges' object, skipping", name_key);
+            continue;
+        }
         
         if (is_range) {
             log_debug("Processing device range: %d-%d", start_addr, end_addr);
             for (int addr = start_addr; addr <= end_addr; addr++) {
                 modbus_device_t *device = &config->devices[device_index++];
+                device->name = strdup(name_key);
                 device->slave_address = addr;
                 device->device_available = 1;
                 
@@ -98,11 +139,11 @@ int load_device_list(config_t *config) {
                 json_t *func_value;
                 device->range_count = 0;
                 
-                json_object_foreach(value, func_key, func_value) {
+                json_object_foreach(ranges_obj, func_key, func_value) {
                     device->range_count++;
                 }
                 
-                log_debug("  Device %d: %d register ranges", addr, device->range_count);
+                log_debug("  Device '%s' addr %d: %d register ranges", name_key, addr, device->range_count);
                 
                 // Выделяем память для диапазонов
                 device->ranges = malloc(device->range_count * sizeof(register_range_t));
@@ -114,7 +155,7 @@ int load_device_list(config_t *config) {
                 
                 // Заполняем диапазоны
                 int range_index = 0;
-                json_object_foreach(value, func_key, func_value) {
+                json_object_foreach(ranges_obj, func_key, func_value) {
                     register_range_t *range = &device->ranges[range_index++];
                     range->address = addr;
                     range->function = atoi(func_key);
@@ -127,16 +168,18 @@ int load_device_list(config_t *config) {
                         range->quantity = json_integer_value(qty_json);
                         range->values = NULL; // Будет выделено при чтении
                         
-                        log_info("  Device %d: Function %d - start: %d, quantity: %d", 
-                                addr, range->function, range->start, range->quantity);
+                        log_info("  Device '%s' addr %d: Function %d - start: %d, quantity: %d", 
+                                name_key, addr, range->function, range->start, range->quantity);
                     } else {
-                        log_error("Invalid range definition for device %d: missing 's' or 'q'", addr);
+                        log_error("Invalid range definition for device '%s' addr %d: missing 's' or 'q'", 
+                                  name_key, addr);
                     }
                 }
             }
         } else {
             log_debug("Processing single device: %d", start_addr);
             modbus_device_t *device = &config->devices[device_index++];
+            device->name = strdup(name_key);
             device->slave_address = start_addr;
             device->device_available = 1;
             
@@ -145,11 +188,11 @@ int load_device_list(config_t *config) {
             json_t *func_value;
             device->range_count = 0;
             
-            json_object_foreach(value, func_key, func_value) {
+            json_object_foreach(ranges_obj, func_key, func_value) {
                 device->range_count++;
             }
             
-            log_debug("  Device %d: %d register ranges", start_addr, device->range_count);
+            log_debug("  Device '%s' addr %d: %d register ranges", name_key, start_addr, device->range_count);
             
             // Выделяем память для диапазонов
             device->ranges = malloc(device->range_count * sizeof(register_range_t));
@@ -161,7 +204,7 @@ int load_device_list(config_t *config) {
             
             // Заполняем диапазоны
             int range_index = 0;
-            json_object_foreach(value, func_key, func_value) {
+            json_object_foreach(ranges_obj, func_key, func_value) {
                 register_range_t *range = &device->ranges[range_index++];
                 range->address = start_addr;
                 range->function = atoi(func_key);
@@ -174,10 +217,11 @@ int load_device_list(config_t *config) {
                     range->quantity = json_integer_value(qty_json);
                     range->values = NULL; // Будет выделено при чтении
                     
-                    log_info("  Device %d: Function %d - start: %d, quantity: %d", 
-                            start_addr, range->function, range->start, range->quantity);
+                    log_info("  Device '%s' addr %d: Function %d - start: %d, quantity: %d", 
+                            name_key, start_addr, range->function, range->start, range->quantity);
                 } else {
-                    log_error("Invalid range definition for device %d: missing 's' or 'q'", start_addr);
+                    log_error("Invalid range definition for device '%s' addr %d: missing 's' or 'q'", 
+                              name_key, start_addr);
                 }
             }
         }

@@ -164,6 +164,9 @@ int main(int argc, char *argv[]) {
                 
                 json_t *device_obj = json_object();
                 json_object_set_new(device_obj, "address", json_integer(device->slave_address));
+                if (device->name) {
+                    json_object_set_new(device_obj, "name", json_string(device->name));
+                }
                 json_object_set_new(device_obj, "available", json_boolean(device->device_available));
                 
                 json_t *registers_array = json_array();

@@ -41,7 +41,8 @@ typedef struct {
 
 // Структура для устройства
 typedef struct {
-    int slave_address;
+    char *name;            // Имя устройства (для группировки)
+    int slave_address;     // Modbus адрес устройства
     register_range_t *ranges;
     int range_count;
     int device_available;  // 1 - доступно, 0 - недоступно

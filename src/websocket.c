@@ -229,13 +229,21 @@ int init_websocket_server(config_t *config) {
         return -1;
     }
     
-    // Позволяем повторно использовать адрес
+    // Позволяем повторно использовать адрес и порт
     int opt = 1;
     if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt))) {
-        log_error("WebSocket: setsockopt failed: %s", strerror(errno));
+        log_error("WebSocket: setsockopt SO_REUSEADDR failed: %s", strerror(errno));
         close(server_fd);
         return -1;
     }
+    
+#ifdef SO_REUSEPORT
+    if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEPORT, &opt, sizeof(opt))) {
+        log_error("WebSocket: setsockopt SO_REUSEPORT failed: %s", strerror(errno));
+        close(server_fd);
+        return -1;
+    }
+#endif
     
     // Устанавливаем неблокирующий режим
     int flags = fcntl(server_fd, F_GETFL, 0);
@@ -642,6 +650,9 @@ void send_device_to_websockets(config_t *config, modbus_device_t *device) {
     
     json_t *device_obj = json_object();
     json_object_set_new(device_obj, "address", json_integer(device->slave_address));
+    if (device->name) {
+        json_object_set_new(device_obj, "name", json_string(device->name));
+    }
     json_object_set_new(device_obj, "available", json_boolean(device->device_available));
     
     json_t *registers_array = json_array();
