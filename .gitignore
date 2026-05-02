@@ -1,9 +1,14 @@
 ```
 # Compiled and build artifacts
+<<<<<<< HEAD
+=======
+mbusread
+>>>>>>> main
 *.o
 *.obj
 *.out
 
+<<<<<<< HEAD
 # Dependencies
 node_modules/
 venv/
@@ -26,11 +31,37 @@ target/
 .env.local
 *.env.*
 
+=======
+# Logs and temp files
+*.log
+*.tmp
+*.swp
+
+# Environment
+.env
+.env.local
+*.env.*
+
+>>>>>>> main
 # Editors
 .vscode/
 .idea/
 
+<<<<<<< HEAD
 # System files
 .DS_Store
 Thumbs.db
+=======
+# Dependencies
+node_modules/
+venv/
+.venv/
+__pycache__/
+.mypy_cache/
+.pytest_cache/
+dist/
+build/
+target/
+.gradle/
+>>>>>>> main
 ```
